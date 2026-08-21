@@ -47,6 +47,60 @@ SOCIAL_RE = {
     "linkedin": re.compile(r"https?://(?:[a-z]{2,3}\.)?linkedin\.com/(?:company|in)/[A-Za-z0-9_%\-]+"),
     "facebook": re.compile(r"https?://(?:www\.)?facebook\.com/[A-Za-z0-9_.\-]+"),
 }
+
+# --- Netjes blijven tegenover de bronnen: rate limiting + robots + retries ---
+import threading
+from urllib import robotparser
+
+_domain_lock = threading.Lock()
+_last_hit = {}          # domein -> laatste tijdstip
+_robots_cache = {}      # domein -> RobotFileParser (of None)
+MIN_INTERVAL = 1.0      # minimaal 1 seconde tussen verzoeken naar hetzelfde domein
+
+def _respect_delay(domain):
+    """Wacht indien nodig zodat we niet te snel achter elkaar hetzelfde domein raken."""
+    with _domain_lock:
+        now = time.time()
+        wait = MIN_INTERVAL - (now - _last_hit.get(domain, 0))
+        if wait > 0:
+            time.sleep(wait)
+        _last_hit[domain] = time.time()
+
+def _robots_ok(base, path):
+    """Controleer robots.txt; bij twijfel toestaan (maar netjes blijven qua tempo)."""
+    domain = urlparse(base).netloc
+    rp = _robots_cache.get(domain, "missing")
+    if rp == "missing":
+        rp = robotparser.RobotFileParser()
+        try:
+            rp.set_url(f"{urlparse(base).scheme}://{domain}/robots.txt")
+            rp.read()
+        except Exception:
+            rp = None
+        _robots_cache[domain] = rp
+    if rp is None:
+        return True
+    try:
+        return rp.can_fetch(UA, f"{base}/{path}".rstrip("/"))
+    except Exception:
+        return True
+
+def polite_get(url, domain, timeout=8, retries=2):
+    """GET met rate limiting en een enkele nette retry bij een tijdelijke fout."""
+    for attempt in range(retries):
+        _respect_delay(domain)
+        try:
+            r = requests.get(url, headers={"User-Agent": UA}, timeout=timeout)
+            if r.status_code in (429, 503) and attempt < retries - 1:
+                time.sleep(2 * (attempt + 1))
+                continue
+            return r
+        except Exception:
+            if attempt < retries - 1:
+                time.sleep(1)
+                continue
+            raise
+    return None
 PROVINCIES = ["Groningen", "Fryslân", "Drenthe", "Overijssel", "Flevoland",
               "Gelderland", "Utrecht", "Noord-Holland", "Zuid-Holland",
               "Zeeland", "Noord-Brabant", "Limburg"]
@@ -273,9 +327,11 @@ def enrich_one(l):
     sigtext = ""  # verzamelde tekst van home + over-ons voor de haak-vinder
     for p in PATHS:
         url = base if p == "" else f"{base}/{p}"
+        if not _robots_ok(base, p):
+            continue
         try:
-            r = requests.get(url, headers={"User-Agent": UA}, timeout=8)
-            if r.status_code != 200 or "html" not in r.headers.get("content-type", ""): continue
+            r = polite_get(url, dom, timeout=8)
+            if not r or r.status_code != 200 or "html" not in r.headers.get("content-type", ""): continue
             html = r.text
             if not email:
                 c = re.findall(r"mailto:([^\"'?\s>]+)", html) + EMAIL_RE.findall(html)
@@ -510,15 +566,16 @@ st.caption("Gratis leads uit OpenStreetMap, verrijkt met e-mail, social links, c
 with st.sidebar:
     st.header("Instellingen")
     campagne = st.selectbox("Campagne", list(PRESETS.keys()))
-    heel = st.checkbox("Heel Nederland", value=False)
+    heel = st.checkbox("Heel Nederland (traag, tabblad open houden)", value=False)
     provincie = st.selectbox("Provincie", PROVINCIES, index=3, disabled=heel)
     st.divider()
     scrape = st.checkbox("Websites verrijken (e-mail, socials, openingszin)", value=True)
     mx_check = st.checkbox("E-mail controleren (MX)", value=True, disabled=not HAVE_DNS)
     dedupe_dom = st.checkbox("Max 1 per domein/keten", value=False)
     snelheid = st.select_slider("Snelheid (parallelle verwerking)",
-                                options=[4, 8, 12, 16, 20], value=12,
-                                help="Hoger = sneller. Te hoog kan sites overbelasten.")
+                                options=[4, 6, 8, 10, 12], value=8,
+                                help="Hoger = sneller. De app blijft altijd netjes tegenover elk "
+                                     "afzonderlijk domein (minimaal 1 sec ertussen).")
     n_per_dag = st.number_input("Aantal per verzenddag", 5, 200, 25, step=5)
     max_sites = st.number_input("Max sites verrijken (0 = alle)", 0, 5000, 0, step=10)
     st.divider()
@@ -534,6 +591,8 @@ with st.sidebar:
             help="Vervangt de standaard uitleg. Gebruik {naam}, {plaats}, {haak}, {opener}. "
                  "Laat leeg voor de ingebouwde teksten.")
     start = st.button("🚀 Start", type="primary", use_container_width=True)
+    st.caption("Houd dit tabblad open tijdens het zoeken. Werk per provincie voor een snelle run. "
+               "Dezelfde provincie opnieuw ophalen gaat direct (opgeslagen).")
 
 if start:
     preset = PRESETS[campagne]
@@ -626,3 +685,11 @@ if st.session_state.get("leads"):
                        file_name="voicestamp_leads.csv", mime="text/csv", use_container_width=True)
 else:
     st.info("Kies links een campagne en provincie en klik op **Start**.")
+
+st.divider()
+st.caption(
+    "Zakelijk gebruik. Benader alleen relevante bedrijven met een duidelijke afmeldmogelijkheid, "
+    "en houd je aan de AVG en de Telecommunicatiewet (B2B-uitzondering). De data komt van "
+    "OpenStreetMap (ODbL) en van openbare bedrijfswebsites. Verstuur gedoseerd; de verzendbatches "
+    "helpen daarbij. Deze tool zoekt geen persoonsgegevens op en is bedoeld als hulpmiddel, niet "
+    "als vervanging van je eigen beoordeling per lead.")
