@@ -1,18 +1,20 @@
 """
-VoiceStamp Lead Finder — Streamlit web-app
-==========================================
-Een klikbare webversie van de leadtool: kies campagne + provincie, klik Start,
-en download de Excel en de Smartlead-CSV. Werkt in de browser, ook op je telefoon.
+VoiceStamp Lead Finder — Streamlit web-app (snelle versie)
+==========================================================
+Nieuw t.o.v. de vorige versie:
+  - VEEL SNELLER: websites worden parallel verwerkt (meerdere tegelijk).
+  - MEER LEADS: bredere OpenStreetMap-categorieen per campagne (gratis, legaal).
+  - Social links: Instagram / LinkedIn / Facebook per lead (handig voor je LinkedIn-aanpak).
+  - OSM-cache: dezelfde provincie opnieuw ophalen gaat direct.
+  - Live voortgang: je ziet meteen wat er gevonden wordt.
 
-Lokaal draaien:
-    pip install streamlit requests dnspython openpyxl pandas
-    streamlit run app.py
-
-Gratis online zetten: zie LEES_MIJ_streamlit.md
+Lokaal: pip install streamlit requests dnspython openpyxl pandas ; streamlit run app.py
+Online: zie LEES_MIJ_streamlit.md
 """
 
-import re, io, time, csv, json, hashlib
+import re, io, time, csv, hashlib
 from urllib.parse import urlparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import streamlit as st
 import requests
@@ -33,46 +35,67 @@ OVERPASS = ["https://overpass-api.de/api/interpreter",
 UA = "VoiceStamp-LeadFinder/streamlit (zakelijk gebruik; contact via voicestamp.nl)"
 EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
 BAD = ("example.", "sentry.", "wixpress.", ".png", ".jpg", ".gif", "@2x",
-       "your-email", "email@", "name@", "domain.com")
-PATHS = ["", "contact", "contact/", "over-ons", "over-ons/", "info", "info/",
-         "reserveren", "reserveren/", "about", "about/"]
+       "your-email", "email@", "name@", "domain.com", "@sentry")
+# Kortere padlijst = sneller. Homepage + de paar meest waarschijnlijke contactpaginas.
+PATHS = ["", "contact", "over-ons", "info", "reserveren", "about"]
 ROLE = ("info", "contact", "welkom", "boeking", "boekingen", "reserveringen",
         "reservering", "hallo", "mail", "receptie", "office", "sales")
 KETEN = ("hotels", "resorts", "group", "vakantieparken", "landal", "roompot",
          "rcn", "huttopia", "fletcher", "ardoer", "europarcs", "oostappen")
+SOCIAL_RE = {
+    "instagram": re.compile(r"https?://(?:www\.)?instagram\.com/[A-Za-z0-9_.]+"),
+    "linkedin": re.compile(r"https?://(?:[a-z]{2,3}\.)?linkedin\.com/(?:company|in)/[A-Za-z0-9_%\-]+"),
+    "facebook": re.compile(r"https?://(?:www\.)?facebook\.com/[A-Za-z0-9_.\-]+"),
+}
 PROVINCIES = ["Groningen", "Fryslân", "Drenthe", "Overijssel", "Flevoland",
               "Gelderland", "Utrecht", "Noord-Holland", "Zuid-Holland",
               "Zeeland", "Noord-Brabant", "Limburg"]
 
+# Bredere presets = meer leads. Elke osm-value krijgt (label, template-segment).
 PRESETS = {
     "Verblijf (campings, hotels, B&B's)": {
-        "key": "verblijf",
-        "filters": [("tourism", "camp_site"), ("tourism", "caravan_site"),
-                    ("tourism", "guest_house"), ("tourism", "hotel"),
-                    ("tourism", "hostel"), ("tourism", "chalet"), ("tourism", "motel")],
-        "typemap": {"camp_site": ("Camping", "natuurcamping"),
-                    "caravan_site": ("Camperplaats", "natuurcamping"),
-                    "guest_house": ("B&B / guest house", "bnb"),
-                    "hotel": ("Hotel", "hotel"), "hostel": ("Hostel", "hotel"),
-                    "chalet": ("Chalet/huisjes", "natuurcamping"), "motel": ("Motel", "hotel")}},
-    "Streek (wijn, kaas, boerderijwinkels)": {
-        "key": "streek",
-        "filters": [("craft", "winery"), ("shop", "wine"), ("shop", "cheese"),
-                    ("shop", "farm"), ("shop", "dairy"), ("shop", "greengrocer")],
-        "typemap": {"winery": ("Wijngaard", "streek"), "wine": ("Wijnhandel", "streek"),
-                    "cheese": ("Kaaswinkel", "streek"), "farm": ("Boerderijwinkel", "streek"),
-                    "dairy": ("Zuivel/boerderij", "streek"), "greengrocer": ("Streekwinkel", "streek")}},
-    "Attracties (dierentuinen, kinderboerderijen)": {
-        "key": "attracties",
-        "filters": [("tourism", "zoo"), ("tourism", "theme_park"), ("tourism", "aquarium")],
-        "typemap": {"zoo": ("Dierentuin/kinderboerderij", "attractie"),
-                    "theme_park": ("Attractiepark", "attractie"),
-                    "aquarium": ("Aquarium", "attractie")}},
+        "typemap": {
+            "camp_site": ("Camping", "natuurcamping"), "caravan_site": ("Camperplaats", "natuurcamping"),
+            "guest_house": ("B&B / guest house", "bnb"), "hotel": ("Hotel", "hotel"),
+            "hostel": ("Hostel", "hotel"), "chalet": ("Chalet/huisjes", "natuurcamping"),
+            "motel": ("Motel", "hotel"), "apartment": ("Vakantieappartement", "bnb"),
+            "alpine_hut": ("Berghut/verblijf", "natuurcamping"),
+        },
+        "keys": {"tourism": ["camp_site", "caravan_site", "guest_house", "hotel",
+                             "hostel", "chalet", "motel", "apartment", "alpine_hut"]},
+    },
+    "Streek (wijn, kaas, brouwers, boerderijwinkels)": {
+        "typemap": {
+            "winery": ("Wijngaard", "streek"), "brewery": ("Brouwerij", "streek"),
+            "distillery": ("Distilleerderij", "streek"), "cheese_making": ("Kaasmakerij", "streek"),
+            "wine": ("Wijnhandel", "streek"), "cheese": ("Kaaswinkel", "streek"),
+            "farm": ("Boerderijwinkel", "streek"), "dairy": ("Zuivel/boerderij", "streek"),
+            "greengrocer": ("Groente/streekwinkel", "streek"), "deli": ("Delicatessen", "streek"),
+            "bakery": ("Bakkerij", "streek"), "butcher": ("Slagerij", "streek"),
+            "confectionery": ("Chocolaterie/snoep", "streek"), "chocolate": ("Chocolatier", "streek"),
+            "honey": ("Imker/honing", "streek"),
+        },
+        "keys": {"craft": ["winery", "brewery", "distillery", "cheese_making"],
+                 "shop": ["wine", "cheese", "farm", "dairy", "greengrocer", "deli",
+                          "bakery", "butcher", "confectionery", "chocolate", "honey"]},
+    },
+    "Attracties (dierentuinen, kinderboerderijen, parken)": {
+        "typemap": {
+            "zoo": ("Dierentuin/kinderboerderij", "attractie"),
+            "theme_park": ("Attractiepark", "attractie"), "aquarium": ("Aquarium", "attractie"),
+            "water_park": ("Waterpark", "attractie"),
+        },
+        "keys": {"tourism": ["zoo", "theme_park", "aquarium"], "leisure": ["water_park"]},
+    },
     "Erfgoed (musea, kastelen, landgoederen)": {
-        "key": "erfgoed",
-        "filters": [("tourism", "museum"), ("historic", "castle"), ("historic", "manor")],
-        "typemap": {"museum": ("Museum", "erfgoed"), "castle": ("Kasteel", "erfgoed"),
-                    "manor": ("Landgoed", "erfgoed")}},
+        "typemap": {
+            "museum": ("Museum", "erfgoed"), "gallery": ("Galerie", "erfgoed"),
+            "castle": ("Kasteel", "erfgoed"), "manor": ("Landgoed", "erfgoed"),
+            "fort": ("Fort", "erfgoed"), "monastery": ("Klooster", "erfgoed"),
+        },
+        "keys": {"tourism": ["museum", "gallery"],
+                 "historic": ["castle", "manor", "fort", "monastery"]},
+    },
 }
 
 LINKS = ("\u2022 Instagram: https://www.instagram.com/voicestamp.nl / @voicestamp.nl\n"
@@ -88,14 +111,13 @@ def _body(mid):
 
 MID = {
  "natuurcamping": ("Wat als een gast dat verhaal niet alleen leest, maar het ook rechtstreeks van "
-   "jullie hoort?\n\nMet VoiceStamp scan je een eenvoudige stempel (VoiceStamp) \u2014 op een "
-   "kampeerplek, bij de receptie of aan de start van een route \u2014 en opent direct een "
-   "persoonlijke audioboodschap met een landingspagina. Geen app, geen account: juist minder drukte, "
-   "niet meer. Bijvoorbeeld een warm welkom, een verhaal over de omgeving, of een wandeltip."),
- "bnb": ("Wat als een gast dat verhaal niet alleen leest, maar het ook van jullie hoort \u2014 op het "
-   "moment dat hij binnenkomt?\n\nMet VoiceStamp scan je een eenvoudige stempel (VoiceStamp) op de "
-   "kamer, en opent direct een persoonlijke audioboodschap met een landingspagina. Geen app, geen "
-   "account. Een warm welkom in je eigen stem, het verhaal van het pand, of een tip voor de omgeving."),
+   "jullie hoort?\n\nMet VoiceStamp scan je een eenvoudige stempel (VoiceStamp) op een plek, en "
+   "opent direct een persoonlijke audioboodschap met een landingspagina. Geen app, geen account: "
+   "juist minder drukte, niet meer. Een warm welkom, een verhaal over de omgeving, of een wandeltip."),
+ "bnb": ("Wat als een gast dat verhaal ook van jullie hoort, op het moment dat hij binnenkomt?\n\n"
+   "Met VoiceStamp scan je een eenvoudige stempel (VoiceStamp) op de kamer, en opent direct een "
+   "persoonlijke audioboodschap met een landingspagina. Geen app, geen account. Een warm welkom in "
+   "je eigen stem, het verhaal van het pand, of een tip voor de omgeving."),
  "hotel": ("Wat als een gast dat verhaal hoort op het moment dat hij binnenkomt?\n\nMet VoiceStamp "
    "scan je een eenvoudige stempel (VoiceStamp) op de kamer of in de lobby, en opent direct een "
    "audioboodschap met een landingspagina. Geen app, geen account. Een warm welkom, het verhaal van "
@@ -104,14 +126,15 @@ MID = {
    "iemand koopt.\n\nMet VoiceStamp scan je een eenvoudige stempel (VoiceStamp) op de verpakking, en "
    "opent direct een audioboodschap met een landingspagina. Geen app, geen account. Waarom een "
    "ingredi\u00ebnt is gekozen, hoe iets gemaakt wordt, of een welkom bij een proeverij."),
- "attractie": ("Wat als een bezoeker bij een dier niet alleen een bordje leest, maar een verzorger "
-   "het hoort vertellen?\n\nMet VoiceStamp scan je een eenvoudige stempel (VoiceStamp) bij een "
-   "verblijf, en opent direct een audioboodschap met een landingspagina. Geen app \u2014 en het werkt "
-   "ook voor kinderen die nog niet lezen. Het verhaal van een dier, een welkom, of het dagprogramma."),
- "erfgoed": ("Wat als een bezoeker het verhaal niet alleen leest, maar hoort \u2014 in de stem van een "
-   "gids of conservator?\n\nMet VoiceStamp scan je een eenvoudige stempel (VoiceStamp) bij een object "
-   "of monument, en opent direct een audioboodschap met een landingspagina. Geen app, geen account. "
-   "Zo maak je het verhaal toegankelijk, ook buiten de rondleidingen om."),
+ "attractie": ("Wat als een bezoeker bij een dier of attractie een verzorger het hoort vertellen, in "
+   "plaats van een bordje te lezen?\n\nMet VoiceStamp scan je een eenvoudige stempel (VoiceStamp) bij "
+   "een verblijf, en opent direct een audioboodschap met een landingspagina. Geen app \u2014 en het "
+   "werkt ook voor kinderen die nog niet lezen. Het verhaal van een dier, een welkom, of het "
+   "dagprogramma."),
+ "erfgoed": ("Wat als een bezoeker het verhaal hoort in de stem van een gids of conservator?\n\nMet "
+   "VoiceStamp scan je een eenvoudige stempel (VoiceStamp) bij een object of monument, en opent "
+   "direct een audioboodschap met een landingspagina. Geen app, geen account. Zo maak je het verhaal "
+   "toegankelijk, ook buiten de rondleidingen om."),
 }
 SUBJECTS = {
  "natuurcamping": ["Wat als jullie plek zelf haar verhaal kon vertellen?", "Een stem bij jullie plek, zonder app"],
@@ -133,16 +156,21 @@ KEYWORDS = ("rust", "natuur", "gastvrij", "persoonlijk", "familie", "verhaal", "
             "welkom", "beleef", "genieten", "monument", "ambacht", "streek", "traditie",
             "avontuur", "kinderen", "dieren")
 
-# ------------------------------------------------------------------ core logic
-def q_build(area, filters, whole):
-    tf = "".join(f'node["{k}"="{v}"](area.a);way["{k}"="{v}"](area.a);'
-                 f'relation["{k}"="{v}"](area.a);' for k, v in filters)
+# ------------------------------------------------------------------ OSM
+def q_build(area, keys, whole):
+    parts = []
+    for k, vals in keys.items():
+        for v in vals:
+            parts.append(f'node["{k}"="{v}"](area.a);way["{k}"="{v}"](area.a);'
+                         f'relation["{k}"="{v}"](area.a);')
     ab = ('area["ISO3166-1"="NL"][admin_level=2]->.a;' if whole
           else f'area["name"="{area}"]["admin_level"="4"]->.a;')
-    return f"[out:json][timeout:180];{ab}({tf});out center tags;"
+    return f'[out:json][timeout:180];{ab}({"".join(parts)});out center tags;'
 
-def osm(area, filters, whole):
-    q = q_build(area, filters, whole); err = None
+@st.cache_data(ttl=7 * 24 * 3600, show_spinner=False)
+def osm_cached(area, keys_items, whole):
+    keys = {k: list(v) for k, v in keys_items}
+    q = q_build(area, keys, whole); err = None
     for ep in OVERPASS:
         try:
             r = requests.post(ep, data={"data": q}, headers={"User-Agent": UA}, timeout=200)
@@ -156,7 +184,7 @@ def parse(els, typemap):
     for el in els:
         t = el.get("tags", {}); name = t.get("name")
         if not name: continue
-        osmval = next((t.get(k) for k in ("tourism", "craft", "shop", "historic")
+        osmval = next((t.get(k) for k in ("tourism", "craft", "shop", "historic", "leisure")
                        if t.get(k) in typemap), None)
         if not osmval: continue
         label, seg = typemap[osmval]
@@ -166,9 +194,12 @@ def parse(els, typemap):
                     "email": email if EMAIL_RE.fullmatch(email or "") else "",
                     "website": (t.get("contact:website") or t.get("website") or "").strip(),
                     "telefoon": (t.get("contact:phone") or t.get("phone") or "").strip(),
+                    "instagram": (t.get("contact:instagram") or ""),
+                    "linkedin": "", "facebook": (t.get("contact:facebook") or ""),
                     "bron": "OpenStreetMap", "opener": ""})
     return out
 
+# ------------------------------------------------------------------ website
 def norm(u):
     if not u: return ""
     if not u.startswith(("http://", "https://")): u = "https://" + u
@@ -190,14 +221,18 @@ def opener_uit(text, seg, plaats):
     if plaats: return DEFAULT_OPENER[seg].rstrip(".") + f", hier in {plaats}."
     return DEFAULT_OPENER[seg]
 
-def enrich(website, seg, plaats):
-    base = norm(website)
-    if not base: return "", ""
-    dom = urlparse(base).netloc.replace("www.", ""); email, opener = "", ""
+def enrich_one(l):
+    """Verrijk een enkele lead: e-mail, openingszin en social links. Muteert en geeft terug."""
+    base = norm(l["website"])
+    if not base:
+        l["opener"] = l["opener"] or DEFAULT_OPENER[l["seg"]]
+        return l
+    dom = urlparse(base).netloc.replace("www.", "")
+    email, opener = l["email"], ""
     for p in PATHS:
         url = base if p == "" else f"{base}/{p}"
         try:
-            r = requests.get(url, headers={"User-Agent": UA}, timeout=10)
+            r = requests.get(url, headers={"User-Agent": UA}, timeout=8)
             if r.status_code != 200 or "html" not in r.headers.get("content-type", ""): continue
             html = r.text
             if not email:
@@ -209,13 +244,20 @@ def enrich(website, seg, plaats):
                     hit = next((x for x in pool if x.startswith(pref)), "")
                     if hit: email = hit; break
                 if not email and pool: email = pool[0]
-            if not opener and p in ("", "over-ons", "over-ons/", "about", "about/"):
-                opener = opener_uit(detag(html), seg, plaats)
+            for netwerk, rx in SOCIAL_RE.items():
+                if not l.get(netwerk):
+                    m = rx.search(html)
+                    if m: l[netwerk] = m.group(0)
+            if not opener and p in ("", "over-ons", "about"):
+                opener = opener_uit(detag(html), l["seg"], l["plaats"])
             if email and opener: break
-        except Exception: continue
-        finally: time.sleep(0.6)
-    return email, (opener or (DEFAULT_OPENER[seg] if not plaats else
-                   DEFAULT_OPENER[seg].rstrip(".") + f", hier in {plaats}."))
+        except Exception:
+            continue
+    l["email"] = email
+    if email and l["bron"] == "OpenStreetMap": l["bron"] = "OSM + website"
+    l["opener"] = opener or (DEFAULT_OPENER[l["seg"]] if not l["plaats"]
+                             else DEFAULT_OPENER[l["seg"]].rstrip(".") + f", hier in {l['plaats']}.")
+    return l
 
 def has_mx(e):
     if not HAVE_DNS or "@" not in e: return None
@@ -255,17 +297,16 @@ def laad_verstuurd(bytes_data, filename):
                         if isinstance(c, str) and EMAIL_RE.fullmatch(c.strip().lower()):
                             s.add(c.strip().lower())
         else:
-            for m in EMAIL_RE.findall(bytes_data.decode("utf-8", "ignore")):
-                s.add(m.strip().lower())
-    except Exception:
-        pass
+            for m in EMAIL_RE.findall(bytes_data.decode("utf-8", "ignore")): s.add(m.strip().lower())
+    except Exception: pass
     return s
 
+# ------------------------------------------------------------------ export
 def build_xlsx(leads):
     wb = Workbook(); ws = wb.active; ws.title = "Leads"
     H = ["Naam", "Type", "Plaats", "E-mail", "Voornaam", "Beste ingang", "E-mail geldig?",
-         "Verzendbatch", "Website", "Telefoon", "Concept onderwerp", "Concept mail",
-         "Status", "Datum verstuurd", "Bron"]
+         "Verzendbatch", "Website", "Telefoon", "Instagram", "LinkedIn", "Facebook",
+         "Concept onderwerp", "Concept mail", "Status", "Datum verstuurd", "Bron"]
     hf = PatternFill("solid", fgColor="2E5D4B"); hfont = Font("Arial", bold=True, color="FFFFFF")
     th = Side(style="thin", color="D0D0D0"); bd = Border(th, th, th, th)
     for c, h in enumerate(H, 1):
@@ -274,11 +315,12 @@ def build_xlsx(leads):
     for r, l in enumerate(leads, 2):
         mx = l.get("mx"); mxt = "ja" if mx is True else ("nee" if mx is False else "onbekend")
         vals = [l["naam"], l["type"], l["plaats"], l["email"], l.get("_vn", ""), l["_ingang"], mxt,
-                l.get("_batch", ""), l["website"], l["telefoon"], l["_subject"], l["_body"], "", "", l["bron"]]
+                l.get("_batch", ""), l["website"], l["telefoon"], l.get("instagram", ""),
+                l.get("linkedin", ""), l.get("facebook", ""), l["_subject"], l["_body"], "", "", l["bron"]]
         for c, v in enumerate(vals, 1):
             x = ws.cell(r, c, v); x.font = Font("Arial", size=10)
             x.alignment = Alignment(vertical="top", wrap_text=True); x.border = bd
-    for i, w in enumerate([26, 18, 15, 28, 12, 26, 11, 11, 26, 15, 32, 66, 12, 13, 15], 1):
+    for i, w in enumerate([24, 17, 14, 26, 11, 24, 11, 10, 24, 14, 22, 22, 22, 30, 60, 11, 12, 14], 1):
         ws.column_dimensions[get_column_letter(i)].width = w
     ws.freeze_panes = "A2"; ws.row_dimensions[1].height = 28
     ws.auto_filter.ref = f"A1:{get_column_letter(len(H))}{len(leads)+1}"
@@ -286,22 +328,26 @@ def build_xlsx(leads):
 
 def build_csv(leads):
     cols = ["email", "first_name", "company", "city", "custom_opener", "custom_subject",
-            "custom_body", "send_batch", "website", "phone", "beste_ingang"]
+            "custom_body", "send_batch", "website", "phone", "instagram", "linkedin",
+            "facebook", "beste_ingang"]
     buf = io.StringIO(); w = csv.DictWriter(buf, fieldnames=cols); w.writeheader()
     for l in leads:
         if not l["email"]: continue
         w.writerow({"email": l["email"], "first_name": l.get("_vn", ""), "company": l["naam"],
                     "city": l["plaats"], "custom_opener": l.get("opener", ""),
                     "custom_subject": l["_subject"], "custom_body": l["_body"],
-                    "send_batch": l.get("_batch", ""), "website": l["website"],
-                    "phone": l["telefoon"], "beste_ingang": l["_ingang"]})
+                    "send_batch": l.get("_batch", ""), "website": l["website"], "phone": l["telefoon"],
+                    "instagram": l.get("instagram", ""), "linkedin": l.get("linkedin", ""),
+                    "facebook": l.get("facebook", ""), "beste_ingang": l["_ingang"]})
     return buf.getvalue().encode("utf-8")
 
 # ------------------------------------------------------------------ pipeline
 def draai(preset, area, whole, scrape, mx_check, dedupe_dom, n_per_dag, max_sites,
-          verstuurd, progress, status):
+          workers, verstuurd, progress, status):
     status("OpenStreetMap ophalen ...")
-    leads = parse(osm(area, preset["filters"], whole), preset["typemap"])
+    keys_items = tuple((k, tuple(v)) for k, v in preset["keys"].items())
+    els = osm_cached(area, keys_items, whole)
+    leads = parse(els, preset["typemap"])
     seen, uniek = set(), []
     for l in leads:
         k = (l["naam"].lower(), l["plaats"].lower())
@@ -309,26 +355,28 @@ def draai(preset, area, whole, scrape, mx_check, dedupe_dom, n_per_dag, max_site
     leads = uniek
     if verstuurd:
         leads = [l for l in leads if l["email"].lower() not in verstuurd]
+    status(f"{len(leads)} plekken gevonden. Websites verrijken ...")
     progress(0.15)
 
     if scrape:
-        todo = [l for l in leads if l["website"] and (not l["email"] or not l["opener"])]
+        todo = [l for l in leads if l["website"]]
         if max_sites: todo = todo[:max_sites]
-        for i, l in enumerate(todo, 1):
-            e, o = enrich(l["website"], l["seg"], l["plaats"])
-            if e and not l["email"]: l["email"] = e; l["bron"] = "OSM + website"
-            l["opener"] = o
-            if i % 3 == 0 or i == len(todo):
-                status(f"Websites verrijken … {i}/{len(todo)}")
-                progress(0.15 + 0.6 * i / max(len(todo), 1))
-    progress(0.8)
+        done = 0
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futs = {ex.submit(enrich_one, l): l for l in todo}
+            for _ in as_completed(futs):
+                done += 1
+                if done % 5 == 0 or done == len(todo):
+                    status(f"Websites verrijken … {done}/{len(todo)}")
+                    progress(0.15 + 0.7 * done / max(len(todo), 1))
+    progress(0.86)
 
     if dedupe_dom:
         gz, dd = set(), []
         for l in leads:
-            dom = (l["email"].split("@")[-1] if l["email"] else l["website"]).lower()
-            if dom and dom in gz: continue
-            gz.add(dom); dd.append(l)
+            d = (l["email"].split("@")[-1] if l["email"] else l["website"]).lower()
+            if d and d in gz: continue
+            gz.add(d); dd.append(l)
         leads = dd
 
     for l in leads:
@@ -337,10 +385,15 @@ def draai(preset, area, whole, scrape, mx_check, dedupe_dom, n_per_dag, max_site
 
     if mx_check and HAVE_DNS:
         status("E-mailadressen controleren (MX) ...")
-        for l in leads: l["mx"] = has_mx(l["email"]) if l["email"] else None
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            res = {ex.submit(has_mx, l["email"]): l for l in leads if l["email"]}
+            for fut in as_completed(res):
+                res[fut]["mx"] = fut.result()
+        for l in leads:
+            if "mx" not in l: l["mx"] = None
     else:
         for l in leads: l["mx"] = None
-    progress(0.92)
+    progress(0.95)
 
     leads.sort(key=lambda l: (l["email"] == "", l["type"], l["naam"]))
     t = 0
@@ -354,7 +407,7 @@ def draai(preset, area, whole, scrape, mx_check, dedupe_dom, n_per_dag, max_site
 # ------------------------------------------------------------------ UI
 st.set_page_config(page_title="VoiceStamp Lead Finder", page_icon="🎙️", layout="wide")
 st.title("🎙️ VoiceStamp Lead Finder")
-st.caption("Gratis leads uit OpenStreetMap, verrijkt met e-mail, concept-mail en verzendbatches.")
+st.caption("Gratis leads uit OpenStreetMap, verrijkt met e-mail, social links, concept-mail en verzendbatches.")
 
 with st.sidebar:
     st.header("Instellingen")
@@ -362,11 +415,14 @@ with st.sidebar:
     heel = st.checkbox("Heel Nederland", value=False)
     provincie = st.selectbox("Provincie", PROVINCIES, index=3, disabled=heel)
     st.divider()
-    scrape = st.checkbox("Websites scrapen (e-mail + openingszin)", value=True)
+    scrape = st.checkbox("Websites verrijken (e-mail, socials, openingszin)", value=True)
     mx_check = st.checkbox("E-mail controleren (MX)", value=True, disabled=not HAVE_DNS)
     dedupe_dom = st.checkbox("Max 1 per domein/keten", value=False)
+    snelheid = st.select_slider("Snelheid (parallelle verwerking)",
+                                options=[4, 8, 12, 16, 20], value=12,
+                                help="Hoger = sneller. Te hoog kan sites overbelasten.")
     n_per_dag = st.number_input("Aantal per verzenddag", 5, 200, 25, step=5)
-    max_sites = st.number_input("Max sites scrapen (0 = alle)", 0, 5000, 0, step=10)
+    max_sites = st.number_input("Max sites verrijken (0 = alle)", 0, 5000, 0, step=10)
     st.divider()
     up = st.file_uploader("Al-verstuurde lijst (csv/xlsx, optioneel)", type=["csv", "xlsx", "xlsm"])
     start = st.button("🚀 Start", type="primary", use_container_width=True)
@@ -374,32 +430,34 @@ with st.sidebar:
 if start:
     preset = PRESETS[campagne]
     verstuurd = laad_verstuurd(up.getvalue(), up.name) if up else set()
-    bar = st.progress(0.0); status_box = st.empty()
+    bar = st.progress(0.0); box = st.empty(); t0 = time.time()
     try:
         leads = draai(preset, None if heel else provincie, heel, scrape, mx_check,
-                      dedupe_dom, n_per_dag, max_sites, verstuurd,
-                      lambda p: bar.progress(min(p, 1.0)),
-                      lambda m: status_box.info(m))
+                      dedupe_dom, n_per_dag, max_sites, int(snelheid), verstuurd,
+                      lambda p: bar.progress(min(p, 1.0)), lambda m: box.info(m))
         st.session_state["leads"] = leads
-        status_box.success("Klaar!")
+        box.success(f"Klaar in {int(time.time()-t0)} seconden.")
     except Exception as e:
-        status_box.error(f"Er ging iets mis: {e}")
+        box.error(f"Er ging iets mis: {e}")
 
 if st.session_state.get("leads"):
     leads = st.session_state["leads"]
     met = sum(1 for l in leads if l["email"])
-    c1, c2, c3 = st.columns(3)
+    socials = sum(1 for l in leads if l.get("instagram") or l.get("linkedin") or l.get("facebook"))
+    c1, c2, c3, c4 = st.columns(4)
     c1.metric("Leads totaal", len(leads))
     c2.metric("Met e-mail", met)
-    c3.metric("Verzenddagen", (met // max(int(n_per_dag), 1)) + 1 if met else 0)
+    c3.metric("Met social", socials)
+    c4.metric("Verzenddagen", (met // max(int(n_per_dag), 1)) + 1 if met else 0)
 
     df = pd.DataFrame([{"Naam": l["naam"], "Type": l["type"], "Plaats": l["plaats"],
-                        "E-mail": l["email"], "Ingang": l["_ingang"], "Batch": l.get("_batch", "")}
+                        "E-mail": l["email"], "Ingang": l["_ingang"],
+                        "Instagram": l.get("instagram", ""), "Batch": l.get("_batch", "")}
                        for l in leads])
     st.dataframe(df, use_container_width=True, height=380)
 
     d1, d2 = st.columns(2)
-    d1.download_button("⬇️ Excel (met concept-mails)", build_xlsx(leads),
+    d1.download_button("⬇️ Excel (met concept-mails + socials)", build_xlsx(leads),
                        file_name="voicestamp_leads.xlsx", use_container_width=True,
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     d2.download_button("⬇️ CSV voor Smartlead/Instantly", build_csv(leads),
