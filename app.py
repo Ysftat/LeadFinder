@@ -156,6 +156,37 @@ KEYWORDS = ("rust", "natuur", "gastvrij", "persoonlijk", "familie", "verhaal", "
             "welkom", "beleef", "genieten", "monument", "ambacht", "streek", "traditie",
             "avontuur", "kinderen", "dieren")
 
+# --- Haak-vinder: signalen die een reden geven om contact op te nemen ---
+# label -> regex (op kleine letters). De eerste match per lead wordt de "haak".
+SIGNALS = {
+    "Prijs/onderscheiding": re.compile(
+        r"\b(award|bekroond|genomineerd|winnaar|onderscheiding|pincamp|green key|"
+        r"michelin|beste [a-z]+ van|verkozen tot)\b"),
+    "Lange historie": re.compile(
+        r"\b(sinds (1[6-9]\d\d|20[01]\d)|opgericht in|al \d{2,3} jaar|"
+        r"\d+e generatie|generatie op generatie|eeuwenoud)\b"),
+    "Familiebedrijf": re.compile(r"\b(familiebedrijf|van vader op zoon|onze familie|familie [a-z]+ runt)\b"),
+    "Duurzaam / B Corp": re.compile(r"\b(duurzaam|biologisch|b corp|co2-neutraal|klimaatneutraal|permacultuur)\b"),
+    "Net geopend / nieuw": re.compile(r"\b(net geopend|sinds kort|nieuw seizoen|onlangs geopend|kersvers)\b"),
+    "Eigen verhaal/oprichter": re.compile(r"\b(ons verhaal|het verhaal achter|de oprichter|opgericht door)\b"),
+    "Ambachtelijk / eigen productie": re.compile(r"\b(ambachtelijk|zelfgemaakt|eigen productie|met de hand gemaakt|hoeve-eigen)\b"),
+}
+# Als een van deze matcht heeft het bedrijf al een app -> pas de pitch aan.
+APP_HINTS = re.compile(r"(download (?:onze|de) app|in de app store|google play|via onze app|onze eigen app)")
+SIGNAL_WORDS = ("award", "bekroond", "genomineerd", "winnaar", "michelin", "green key",
+                "familiebedrijf", "generatie", "sinds 1", "sinds 20", "ambachtelijk",
+                "duurzaam", "oprichter", "ons verhaal", "b corp")
+
+def detect_signals(text):
+    """Geef (haak-label of '', heeft_app-bool) terug op basis van de sitetekst."""
+    tl = text.lower()
+    haak = ""
+    for label, rx in SIGNALS.items():
+        if rx.search(tl):
+            haak = label
+            break
+    return haak, bool(APP_HINTS.search(tl))
+
 # ------------------------------------------------------------------ OSM
 def q_build(area, keys, whole):
     parts = []
@@ -196,6 +227,7 @@ def parse(els, typemap):
                     "telefoon": (t.get("contact:phone") or t.get("phone") or "").strip(),
                     "instagram": (t.get("contact:instagram") or ""),
                     "linkedin": "", "facebook": (t.get("contact:facebook") or ""),
+                    "haak": "", "heeft_app": False,
                     "bron": "OpenStreetMap", "opener": ""})
     return out
 
@@ -214,7 +246,7 @@ def opener_uit(text, seg, plaats):
     for z in re.split(r"(?<=[.!?]) ", text):
         zl = z.lower()
         if not (40 <= len(z) <= 165) or "cookie" in zl: continue
-        s = sum(k in zl for k in KEYWORDS)
+        s = sum(k in zl for k in KEYWORDS) + 3 * sum(w in zl for w in SIGNAL_WORDS)
         if s > score: best, score = z.strip().rstrip("."), s
     if best and score >= 1:
         return f"Tijdens het bekijken van jullie website viel me op dat {best[0].lower()}{best[1:]}."
@@ -229,6 +261,7 @@ def enrich_one(l):
         return l
     dom = urlparse(base).netloc.replace("www.", "")
     email, opener = l["email"], ""
+    sigtext = ""  # verzamelde tekst van home + over-ons voor de haak-vinder
     for p in PATHS:
         url = base if p == "" else f"{base}/{p}"
         try:
@@ -248,11 +281,18 @@ def enrich_one(l):
                 if not l.get(netwerk):
                     m = rx.search(html)
                     if m: l[netwerk] = m.group(0)
-            if not opener and p in ("", "over-ons", "about"):
-                opener = opener_uit(detag(html), l["seg"], l["plaats"])
-            if email and opener: break
+            if p in ("", "over-ons", "about"):
+                tekst = detag(html)
+                sigtext += " " + tekst
+                if not opener:
+                    opener = opener_uit(tekst, l["seg"], l["plaats"])
+            # niet te vroeg stoppen: we willen ook over-ons zien voor de haak
+            if email and opener and sigtext: break
         except Exception:
             continue
+    haak, heeft_app = detect_signals(sigtext)
+    l["haak"] = haak
+    l["heeft_app"] = heeft_app
     l["email"] = email
     if email and l["bron"] == "OpenStreetMap": l["bron"] = "OSM + website"
     l["opener"] = opener or (DEFAULT_OPENER[l["seg"]] if not l["plaats"]
@@ -281,8 +321,18 @@ def ingang(l):
 def maak_mail(l):
     seg = l["seg"]; subs = SUBJECTS[seg]
     subject = subs[int(hashlib.md5(l['naam'].encode()).hexdigest(), 16) % len(subs)]
+    if l.get("heeft_app"):
+        subject = "Geen tweede app \u2014 juist minder gedoe"
     aanhef = l.get("_vn") or f"team van {l['naam']}"
-    body = _body(MID[seg]).format(aanhef=aanhef, opener=l.get("opener") or DEFAULT_OPENER[seg])
+    opener = l.get("opener") or DEFAULT_OPENER[seg]
+    body = _body(MID[seg]).format(aanhef=aanhef, opener=opener)
+    if l.get("heeft_app"):
+        # Zet de 'geen tweede app'-tegenwerping vooraan, want die hebben ze al gedacht.
+        extra = ("\n\nIk zag dat jullie al met een app werken, dus voor de duidelijkheid: "
+                 "VoiceStamp is g\u00e9\u00e9n tweede app. Een gast hoeft niets te downloaden en geen "
+                 "account te maken \u2014 hij scant en hoort meteen jullie stem. Ik zie het naast "
+                 "jullie app staan, niet in de weg.")
+        body = body.replace("\n\nBenieuwd hoe dat eruitziet?", extra + "\n\nBenieuwd hoe dat eruitziet?")
     return subject, body
 
 def laad_verstuurd(bytes_data, filename):
@@ -304,9 +354,9 @@ def laad_verstuurd(bytes_data, filename):
 # ------------------------------------------------------------------ export
 def build_xlsx(leads):
     wb = Workbook(); ws = wb.active; ws.title = "Leads"
-    H = ["Naam", "Type", "Plaats", "E-mail", "Voornaam", "Beste ingang", "E-mail geldig?",
-         "Verzendbatch", "Website", "Telefoon", "Instagram", "LinkedIn", "Facebook",
-         "Concept onderwerp", "Concept mail", "Status", "Datum verstuurd", "Bron"]
+    H = ["Naam", "Type", "Plaats", "E-mail", "Voornaam", "Haak (reden voor contact)", "Heeft app?",
+         "Beste ingang", "E-mail geldig?", "Verzendbatch", "Website", "Telefoon", "Instagram",
+         "LinkedIn", "Facebook", "Concept onderwerp", "Concept mail", "Status", "Datum verstuurd", "Bron"]
     hf = PatternFill("solid", fgColor="2E5D4B"); hfont = Font("Arial", bold=True, color="FFFFFF")
     th = Side(style="thin", color="D0D0D0"); bd = Border(th, th, th, th)
     for c, h in enumerate(H, 1):
@@ -314,29 +364,32 @@ def build_xlsx(leads):
         x.alignment = Alignment(vertical="center", wrap_text=True); x.border = bd
     for r, l in enumerate(leads, 2):
         mx = l.get("mx"); mxt = "ja" if mx is True else ("nee" if mx is False else "onbekend")
-        vals = [l["naam"], l["type"], l["plaats"], l["email"], l.get("_vn", ""), l["_ingang"], mxt,
-                l.get("_batch", ""), l["website"], l["telefoon"], l.get("instagram", ""),
-                l.get("linkedin", ""), l.get("facebook", ""), l["_subject"], l["_body"], "", "", l["bron"]]
+        vals = [l["naam"], l["type"], l["plaats"], l["email"], l.get("_vn", ""), l.get("haak", ""),
+                "ja" if l.get("heeft_app") else "", l["_ingang"], mxt, l.get("_batch", ""),
+                l["website"], l["telefoon"], l.get("instagram", ""), l.get("linkedin", ""),
+                l.get("facebook", ""), l["_subject"], l["_body"], "", "", l["bron"]]
         for c, v in enumerate(vals, 1):
             x = ws.cell(r, c, v); x.font = Font("Arial", size=10)
             x.alignment = Alignment(vertical="top", wrap_text=True); x.border = bd
-    for i, w in enumerate([24, 17, 14, 26, 11, 24, 11, 10, 24, 14, 22, 22, 22, 30, 60, 11, 12, 14], 1):
+    for i, w in enumerate([24, 17, 14, 26, 11, 22, 9, 24, 11, 10, 24, 14, 20, 20, 20, 30, 58, 11, 12, 14], 1):
         ws.column_dimensions[get_column_letter(i)].width = w
     ws.freeze_panes = "A2"; ws.row_dimensions[1].height = 28
     ws.auto_filter.ref = f"A1:{get_column_letter(len(H))}{len(leads)+1}"
     buf = io.BytesIO(); wb.save(buf); return buf.getvalue()
 
 def build_csv(leads):
-    cols = ["email", "first_name", "company", "city", "custom_opener", "custom_subject",
-            "custom_body", "send_batch", "website", "phone", "instagram", "linkedin",
-            "facebook", "beste_ingang"]
+    cols = ["email", "first_name", "company", "city", "hook", "has_app", "custom_opener",
+            "custom_subject", "custom_body", "send_batch", "website", "phone", "instagram",
+            "linkedin", "facebook", "beste_ingang"]
     buf = io.StringIO(); w = csv.DictWriter(buf, fieldnames=cols); w.writeheader()
     for l in leads:
         if not l["email"]: continue
         w.writerow({"email": l["email"], "first_name": l.get("_vn", ""), "company": l["naam"],
-                    "city": l["plaats"], "custom_opener": l.get("opener", ""),
-                    "custom_subject": l["_subject"], "custom_body": l["_body"],
-                    "send_batch": l.get("_batch", ""), "website": l["website"], "phone": l["telefoon"],
+                    "city": l["plaats"], "hook": l.get("haak", ""),
+                    "has_app": "yes" if l.get("heeft_app") else "",
+                    "custom_opener": l.get("opener", ""), "custom_subject": l["_subject"],
+                    "custom_body": l["_body"], "send_batch": l.get("_batch", ""),
+                    "website": l["website"], "phone": l["telefoon"],
                     "instagram": l.get("instagram", ""), "linkedin": l.get("linkedin", ""),
                     "facebook": l.get("facebook", ""), "beste_ingang": l["_ingang"]})
     return buf.getvalue().encode("utf-8")
@@ -443,16 +496,18 @@ if start:
 if st.session_state.get("leads"):
     leads = st.session_state["leads"]
     met = sum(1 for l in leads if l["email"])
-    socials = sum(1 for l in leads if l.get("instagram") or l.get("linkedin") or l.get("facebook"))
-    c1, c2, c3, c4 = st.columns(4)
+    haken = sum(1 for l in leads if l.get("haak"))
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Leads totaal", len(leads))
     c2.metric("Met e-mail", met)
-    c3.metric("Met social", socials)
-    c4.metric("Verzenddagen", (met // max(int(n_per_dag), 1)) + 1 if met else 0)
+    c3.metric("Met haak", haken)
+    c4.metric("Heeft app", sum(1 for l in leads if l.get("heeft_app")))
+    c5.metric("Verzenddagen", (met // max(int(n_per_dag), 1)) + 1 if met else 0)
 
     df = pd.DataFrame([{"Naam": l["naam"], "Type": l["type"], "Plaats": l["plaats"],
-                        "E-mail": l["email"], "Ingang": l["_ingang"],
-                        "Instagram": l.get("instagram", ""), "Batch": l.get("_batch", "")}
+                        "E-mail": l["email"], "Haak": l.get("haak", ""),
+                        "App?": "ja" if l.get("heeft_app") else "", "Ingang": l["_ingang"],
+                        "Batch": l.get("_batch", "")}
                        for l in leads])
     st.dataframe(df, use_container_width=True, height=380)
 
