@@ -150,6 +150,30 @@ PRESETS = {
         "keys": {"tourism": ["museum", "gallery"],
                  "historic": ["castle", "manor", "fort", "monastery"]},
     },
+    "Horeca (restaurants, cafés)": {
+        "typemap": {
+            "restaurant": ("Restaurant", "horeca"), "cafe": ("Café/lunchroom", "horeca"),
+            "pub": ("Eetcafé/pub", "horeca"), "bistro": ("Bistro", "horeca"),
+            "ice_cream": ("IJssalon", "horeca"),
+        },
+        "keys": {"amenity": ["restaurant", "cafe", "pub", "bistro", "ice_cream"]},
+    },
+    "Winkels met een verhaal (cadeau, kunst, sieraden)": {
+        "typemap": {
+            "gift": ("Cadeauwinkel", "winkel"), "art": ("Kunstwinkel/galerie", "winkel"),
+            "books": ("Boekwinkel", "winkel"), "jewelry": ("Sieradenwinkel", "winkel"),
+            "antiques": ("Antiek", "winkel"), "interior_decoration": ("Interieurwinkel", "winkel"),
+            "pottery": ("Keramiek/aardewerk", "winkel"), "craft": ("Hobby/ambacht", "winkel"),
+            "musical_instrument": ("Muziekwinkel", "winkel"), "watches": ("Horlogewinkel", "winkel"),
+        },
+        "keys": {"shop": ["gift", "art", "books", "jewelry", "antiques",
+                          "interior_decoration", "pottery", "craft",
+                          "musical_instrument", "watches"]},
+    },
+    "Bloemisten": {
+        "typemap": {"florist": ("Bloemist", "bloemist"), "garden_centre": ("Tuincentrum", "bloemist")},
+        "keys": {"shop": ["florist", "garden_centre"]},
+    },
 }
 
 LINKS = ("\u2022 Instagram: https://www.instagram.com/voicestamp.nl / @voicestamp.nl\n"
@@ -190,6 +214,19 @@ MID = {
    "VoiceStamp scan je een eenvoudige stempel (VoiceStamp) bij een object of monument, en opent "
    "direct een audioboodschap met een landingspagina. Geen app, geen account. Zo maak je het verhaal "
    "toegankelijk, ook buiten de rondleidingen om."),
+ "horeca": ("Wat als een gast niet alleen leest wat er op de kaart staat, maar de chef zelf hoort "
+   "vertellen waarom een gerecht er staat?\n\nMet VoiceStamp scan je een eenvoudige stempel "
+   "(VoiceStamp) op de menukaart of op tafel, en opent direct een audioboodschap met een "
+   "landingspagina. Geen app, geen account. Een welkom bij binnenkomst, het verhaal achter een "
+   "streekgerecht of leverancier, of een tip voor een volgende keer."),
+ "winkel": ("Want dat verhaal vertel je in de winkel, maar het gaat niet mee met het product dat "
+   "iemand koopt.\n\nMet VoiceStamp scan je een eenvoudige stempel (VoiceStamp) op het product of de "
+   "verpakking, en opent direct een audioboodschap met een landingspagina. Geen app, geen account. "
+   "Waarom een stuk gemaakt is, wie de maker is, of hoe je het het beste gebruikt of onderhoudt."),
+ "bloemist": ("Wat als een boeket zelf een boodschap kon meegeven, in de stem van de afzender?\n\n"
+   "Met VoiceStamp scan je een eenvoudige stempel (VoiceStamp) bij het boeket, in plaats van het "
+   "kleine kaartje, en opent direct een persoonlijke audioboodschap met een landingspagina. Geen "
+   "app, geen account. Juist rond momenten als Moederdag of Valentijn maakt een stem het verschil."),
 }
 SUBJECTS = {
  "natuurcamping": ["Wat als jullie plek zelf haar verhaal kon vertellen?", "Een stem bij jullie plek, zonder app"],
@@ -198,6 +235,9 @@ SUBJECTS = {
  "streek": ["Wat als jullie product zelf zijn verhaal kon vertellen?", "Het verhaal achter het product"],
  "attractie": ["Wat als jullie dieren hun eigen verhaal konden vertellen?", "Een stem bij elk verblijf"],
  "erfgoed": ["Wat als jullie collectie zelf haar verhaal kon vertellen?", "Een stem bij het monument"],
+ "horeca": ["Wat als jullie gerechten hun eigen verhaal konden vertellen?", "Een woord van de chef, op tafel"],
+ "winkel": ["Wat als jullie producten zelf hun verhaal konden vertellen?", "Het verhaal achter het product, bij de klant thuis"],
+ "bloemist": ["Wat als een boeket zelf iets kon zeggen?", "Een stem bij de bloemen, geen kaartje"],
 }
 FOLLOWUP_2 = ("Beste {aanhef},\n\nKorte opvolging op mijn vorige bericht, want ik snap dat het druk "
               "is. In \u00e9\u00e9n zin: met {merk} hoort een gast bij jullie een stem in plaats van een "
@@ -214,6 +254,9 @@ DEFAULT_OPENER = {
  "streek": "Tijdens het bekijken van jullie website viel me op hoeveel verhaal er in jullie producten zit.",
  "attractie": "Tijdens het bekijken van jullie website viel me op hoeveel er bij jullie te beleven is.",
  "erfgoed": "Tijdens het bekijken van jullie website viel me op hoeveel verhaal jullie plek draagt.",
+ "horeca": "Tijdens het bekijken van jullie website viel me op hoeveel aandacht jullie besteden aan de gerechten en de sfeer.",
+ "winkel": "Tijdens het bekijken van jullie website viel me op hoeveel verhaal er in jullie producten zit.",
+ "bloemist": "Tijdens het bekijken van jullie website viel me op hoeveel gevoel jullie in jullie boeketten leggen.",
 }
 KEYWORDS = ("rust", "natuur", "gastvrij", "persoonlijk", "familie", "verhaal", "duurzaam",
             "welkom", "beleef", "genieten", "monument", "ambacht", "streek", "traditie",
@@ -278,7 +321,7 @@ def parse(els, typemap):
     for el in els:
         t = el.get("tags", {}); name = t.get("name")
         if not name: continue
-        osmval = next((t.get(k) for k in ("tourism", "craft", "shop", "historic", "leisure")
+        osmval = next((t.get(k) for k in ("tourism", "craft", "shop", "historic", "leisure", "amenity")
                        if t.get(k) in typemap), None)
         if not osmval: continue
         label, seg = typemap[osmval]
