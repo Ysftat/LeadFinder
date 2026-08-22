@@ -176,9 +176,10 @@ PRESETS = {
     },
 }
 
-LINKS = ("\u2022 Instagram: https://www.instagram.com/voicestamp.nl / @voicestamp.nl\n"
-         "\u2022 LinkedIn: https://www.linkedin.com/company/voicestamp / VoiceStamp\n"
-         "\u2022 Website: www.voicestamp.nl\n\u2022 Hoe het werkt: www.voicestamp.nl/how-it-works")
+LINKS = ("\u2022 Website: www.voicestamp.nl\n"
+         "\u2022 Hoe het werkt: www.voicestamp.nl/how-it-works\n"
+         "\u2022 Instagram: @voicestamp.nl\n"
+         "\u2022 LinkedIn: VoiceStamp")
 SIG = ("Met vriendelijke groet,\nYusuf Tatlicioglu\n0646756497\n\n"
        "Founder VoiceStamp\nhttps://www.voicestamp.nl/")
 APP_LINE = ("Ik zag dat jullie al met een app werken, dus voor de duidelijkheid: VoiceStamp is "
@@ -239,13 +240,130 @@ SUBJECTS = {
  "winkel": ["Wat als jullie producten zelf hun verhaal konden vertellen?", "Het verhaal achter het product, bij de klant thuis"],
  "bloemist": ["Wat als een boeket zelf iets kon zeggen?", "Een stem bij de bloemen, geen kaartje"],
 }
-FOLLOWUP_2 = ("Beste {aanhef},\n\nKorte opvolging op mijn vorige bericht, want ik snap dat het druk "
-              "is. In \u00e9\u00e9n zin: met {merk} hoort een gast bij jullie een stem in plaats van een "
-              "bordje te lezen. Geen app, geen account.\n\nZou een korte kennismaking de moeite waard "
-              "zijn? Dan laat ik in een paar minuten zien hoe het werkt.\n\n{sig}")
-FOLLOWUP_3 = ("Beste {aanhef},\n\nLaatste bericht van mijn kant, daarna val ik je niet meer lastig. "
-              "Komt het nu niet uit, helemaal goed. Mocht je ooit willen dat jullie verhaal ook echt "
-              "te h\u00f3ren is op de plek zelf, dan weet je me te vinden.\n\n{sig}")
+FOLLOWUP_2 = ("Beste {aanhef},\n\nKorte opvolging op mijn vorige bericht. Ik snap dat het druk is, "
+              "dus kort: met {merk} horen jullie mensen een stem op de plek zelf, in plaats van een "
+              "bordje te lezen. Geen app, geen account.\n\nZal ik het een keer laten zien?\n\n"
+              "Met vriendelijke groet,")
+FOLLOWUP_3 = ("Beste {aanhef},\n\nLaatste bericht van mijn kant, daarna laat ik het rusten. Mocht je "
+              "ooit willen dat jullie verhaal ook echt te h\u00f3ren is op de plek zelf, dan weet je me "
+              "te vinden.\n\nMet vriendelijke groet,")
+
+# Prikkelende onderwerpregels per segment (in plaats van een 'wat als'-vraag).
+SUBJECTS_STD = {
+    "natuurcamping": "Jullie verhalen krijgen te weinig aandacht",
+    "bnb": "Jullie verhalen krijgen te weinig aandacht",
+    "hotel": "Jullie verhalen krijgen te weinig aandacht",
+    "streek": "Jullie producten hebben een verhaal dat de klant nooit hoort",
+    "winkel": "Jullie producten hebben een verhaal dat de klant nooit hoort",
+    "horeca": "Jullie gerechten hebben een verhaal dat de gast nooit hoort",
+    "bloemist": "Het kaartje bij het boeket zegt te weinig",
+    "attractie": "Een bordje dat kinderen niet kunnen lezen",
+    "erfgoed": "Jullie verhalen krijgen te weinig aandacht",
+}
+
+# Idee-gedreven kerntekst per segment (zonder aanhef, zonder links, zonder groet).
+STD = {
+ "natuurcamping": {"segwoord": "camping", "kern":
+   "Jullie verhalen krijgen te weinig aandacht.\n\n"
+   "Het verhaal achter de plek, de route, de omgeving. Vaak staat het op een bordje waar een gast "
+   "een paar seconden naar kijkt en daarna weer doorloopt.\n\n"
+   "Terwijl juist die verhalen een verblijf persoonlijker en bijzonderder kunnen maken.\n\n"
+   "Wat als gasten jullie verhaal niet hoeven te lezen, maar gewoon kunnen horen? Op het moment "
+   "zelf, in jullie eigen stem.\n\n"
+   "Met VoiceStamp scant een gast een eenvoudige stempel, op de kampeerplek, bij de receptie of aan "
+   "de start van een route, en hoort direct jullie audioboodschap. Geen app, geen account.\n\n"
+   "Een warm welkom bij aankomst. Een tip voor de mooiste wandeling. Of het verhaal achter de plek "
+   "waar ze verblijven.\n\n"
+   "Het is geen extra scherm en geen extra drukte. Juist minder: het vangt vragen af die nu bij de "
+   "receptie terechtkomen en het werkt ook voor kinderen die nog niet lezen."},
+ "bnb": {"segwoord": "B&B", "kern":
+   "Jullie verhalen krijgen te weinig aandacht.\n\n"
+   "Het verhaal van het pand, van de plek, van de omgeving. Het staat op de website of op een "
+   "briefje, en verdwijnt zodra een gast de kamer in loopt.\n\n"
+   "Terwijl juist die verhalen een verblijf persoonlijker en bijzonderder maken.\n\n"
+   "Wat als gasten jullie verhaal niet hoeven te lezen, maar gewoon kunnen horen? Op het moment "
+   "zelf, in jullie eigen stem.\n\n"
+   "Met VoiceStamp scant een gast een eenvoudige stempel, op de kamer of bij een bijzonder detail "
+   "van het pand, en hoort direct jullie audioboodschap. Geen app, geen account.\n\n"
+   "Een warm welkom bij aankomst. Het verhaal van het pand. Of een tip voor de omgeving.\n\n"
+   "Het is geen extra drukte, maar juist minder. Het vangt vragen af die anders bij jullie "
+   "terechtkomen, ook op de momenten dat je er zelf even niet bent."},
+ "hotel": {"segwoord": "hotel", "kern":
+   "Jullie verhalen krijgen te weinig aandacht.\n\n"
+   "Het verhaal van het pand, van de plek, van de omgeving. Het staat op de website of op een "
+   "gelamineerd vel op de kamer, en krijgt maar een paar seconden aandacht.\n\n"
+   "Terwijl juist die verhalen een verblijf persoonlijker en bijzonderder maken.\n\n"
+   "Wat als gasten jullie verhaal niet hoeven te lezen, maar gewoon kunnen horen? Op het moment "
+   "zelf, in jullie eigen stem.\n\n"
+   "Met VoiceStamp scant een gast een eenvoudige stempel, op de kamer, in de lobby of in het "
+   "restaurant, en hoort direct jullie audioboodschap. Geen app, geen account.\n\n"
+   "Een warm welkom bij aankomst. Het verhaal van het pand. Of een tip voor de omgeving.\n\n"
+   "Het is geen extra scherm en geen extra drukte. Juist minder: het vangt de vragen af die nu bij "
+   "de receptie terechtkomen."},
+ "streek": {"segwoord": "zaak", "kern":
+   "Jullie producten hebben een verhaal dat de klant nooit hoort.\n\n"
+   "Waarom een druif, een kaas of een ingredi\u00ebnt gekozen is. Dat vertel je in de winkel of aan "
+   "de proeftafel, maar het gaat niet mee met het product dat iemand koopt.\n\n"
+   "Terwijl juist dat verhaal een product bijzonderder maakt.\n\n"
+   "Wat als het product dat verhaal zelf kon vertellen? Bij de klant thuis, in jullie eigen stem.\n\n"
+   "Met VoiceStamp scant een klant een eenvoudige stempel, op de verpakking of bij een schap, en "
+   "hoort direct jullie audioboodschap. Geen app, geen account.\n\n"
+   "Waarom een product bijzonder is. Hoe je het het beste gebruikt. Of een persoonlijk welkom bij "
+   "een proeverij.\n\n"
+   "Geen extra drukte, gewoon een stem bij het product op het moment dat het telt."},
+ "winkel": {"segwoord": "winkel", "kern":
+   "Jullie producten hebben een verhaal dat de klant nooit hoort.\n\n"
+   "Wie het maakte, waarom het bijzonder is. In de winkel vertel je het, maar het gaat niet mee "
+   "naar huis met wat iemand koopt.\n\n"
+   "Terwijl juist dat verhaal een product bijzonderder maakt.\n\n"
+   "Wat als het product dat verhaal zelf kon vertellen? Bij de klant thuis, in de stem van de "
+   "maker.\n\n"
+   "Met VoiceStamp scant een klant een eenvoudige stempel, op het product of de verpakking, en "
+   "hoort direct jullie audioboodschap. Geen app, geen account.\n\n"
+   "Het verhaal van de maker. Hoe je iets het beste gebruikt of onderhoudt. Of een woord van jullie "
+   "zelf.\n\n"
+   "Geen extra drukte, gewoon een stem bij het product op het moment dat het telt."},
+ "horeca": {"segwoord": "zaak", "kern":
+   "Jullie gerechten hebben een verhaal dat de gast nooit hoort.\n\n"
+   "Waarom een gerecht op de kaart staat, waar een product vandaan komt. Op een drukke avond komt "
+   "dat verhaal er niet uit.\n\n"
+   "Terwijl juist dat verhaal een bezoek bijzonderder maakt.\n\n"
+   "Wat als jullie dat verhaal gewoon konden laten horen? Aan tafel, in de stem van de chef.\n\n"
+   "Met VoiceStamp scant een gast een eenvoudige stempel, op de menukaart of op tafel, en hoort "
+   "direct jullie audioboodschap. Geen app, geen account.\n\n"
+   "Een welkom bij binnenkomst. Het verhaal achter een streekgerecht. Of een tip voor een volgende "
+   "keer.\n\n"
+   "Geen extra drukte in de bediening, gewoon een stem op het juiste moment."},
+ "bloemist": {"segwoord": "winkel", "kern":
+   "Een boeket zegt veel, maar het kaartje erbij zegt weinig.\n\n"
+   "Een paar woorden op een klein kaartje. Terwijl juist de boodschap het boeket bijzonder maakt.\n\n"
+   "Wat als de afzender zijn boodschap kon inspreken, in zijn eigen stem?\n\n"
+   "Met VoiceStamp scant de ontvanger een eenvoudige stempel bij het boeket, in plaats van het "
+   "kaartje, en hoort direct de boodschap. Geen app, geen account.\n\n"
+   "Een persoonlijke felicitatie. Een woord van troost. Of gewoon: ik denk aan je.\n\n"
+   "Geen app, geen gedoe. Juist rond Moederdag en Valentijn maakt een stem het verschil."},
+ "attractie": {"segwoord": "park", "kern":
+   "Jullie dieren en attracties hebben een verhaal dat vaak op een bordje blijft steken.\n\n"
+   "Een bordje dat een paar seconden aandacht krijgt, en dat kinderen nog niet kunnen lezen.\n\n"
+   "Terwijl juist die verhalen een bezoek bijzonderder maken.\n\n"
+   "Wat als een bezoeker dat verhaal gewoon kon horen? Bij het verblijf zelf, verteld door een "
+   "verzorger.\n\n"
+   "Met VoiceStamp scant een bezoeker een eenvoudige stempel, bij een verblijf of langs de route, "
+   "en hoort direct jullie audioboodschap. Geen app, geen account.\n\n"
+   "Het verhaal van een dier. Een welkom bij binnenkomst. Of het programma van die dag.\n\n"
+   "Geen extra drukte, en het werkt ook voor wie nog niet leest."},
+ "erfgoed": {"segwoord": "organisatie", "kern":
+   "Jullie verhalen krijgen te weinig aandacht.\n\n"
+   "Het verhaal van een plek of een stuk staat op een bordje dat een bezoeker een paar seconden "
+   "bekijkt en daarna loslaat.\n\n"
+   "Terwijl juist die verhalen een bezoek bijzonderder maken.\n\n"
+   "Wat als een bezoeker dat verhaal kon horen? Op de plek zelf, in de stem van een gids of "
+   "conservator.\n\n"
+   "Met VoiceStamp scant een bezoeker een eenvoudige stempel, bij een object, een monument of langs "
+   "een route, en hoort direct jullie audioboodschap. Geen app, geen account.\n\n"
+   "Het verhaal achter een stuk. Een route langs de hoogtepunten. Of een welkom bij binnenkomst.\n\n"
+   "Zo maak je jullie verhaal toegankelijk, ook buiten de rondleidingen om."},
+}
 
 DEFAULT_OPENER = {
  "natuurcamping": "Tijdens het bekijken van jullie website viel me op hoeveel aandacht jullie besteden aan rust en natuur.",
@@ -347,16 +465,42 @@ def detag(h):
     h = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", h, flags=re.S | re.I)
     return re.sub(r"<[^>]+>", " ", h)
 
-def opener_uit(text, seg, plaats):
-    text = re.sub(r"\s+", " ", text).strip(); best, score = None, 0
+# Vaste, altijd-correcte openingszinnen per gevonden haak (geen zinsontleding nodig).
+HOOK_OPENERS = {
+    "Prijs/onderscheiding": "Tijdens het bekijken van jullie website viel me op dat jullie in de prijzen zijn gevallen.",
+    "Lange historie": "Tijdens het bekijken van jullie website viel me op hoeveel geschiedenis er in jullie plek zit.",
+    "Familiebedrijf": "Tijdens het bekijken van jullie website viel me op dat het een echt familiebedrijf is.",
+    "Duurzaam / B Corp": "Tijdens het bekijken van jullie website viel me op hoe bewust jullie met duurzaamheid omgaan.",
+    "Net geopend / nieuw": "Tijdens het bekijken van jullie website viel me op dat jullie nog niet zo lang geleden zijn begonnen.",
+    "Eigen verhaal/oprichter": "Tijdens het bekijken van jullie website viel me op hoeveel persoonlijk verhaal er achter jullie plek zit.",
+    "Ambachtelijk / eigen productie": "Tijdens het bekijken van jullie website viel me op hoe ambachtelijk jullie te werk gaan.",
+}
+
+def _schone_citaatzin(text):
+    """Zoek een korte, nette zin op de site die we LETTERLIJK kunnen citeren (altijd grammaticaal)."""
+    text = re.sub(r"\s+", " ", text).strip()
+    best, score = None, 0
     for z in re.split(r"(?<=[.!?]) ", text):
+        z = z.strip()
         zl = z.lower()
-        if not (40 <= len(z) <= 165) or "cookie" in zl: continue
-        s = sum(k in zl for k in KEYWORDS) + 3 * sum(w in zl for w in SIGNAL_WORDS)
-        if s > score: best, score = z.strip().rstrip("."), s
-    if best and score >= 1:
-        return f"Tijdens het bekijken van jullie website viel me op dat {best[0].lower()}{best[1:]}."
-    if plaats: return DEFAULT_OPENER[seg].rstrip(".") + f", hier in {plaats}."
+        # streng: begint met hoofdletter, nette lengte, geen rare tekens of webrommel
+        if not (35 <= len(z) <= 140): continue
+        if not z[0].isupper(): continue
+        if any(x in zl for x in ("cookie", "javascript", "©", "http", "@", "lees meer", "klik")): continue
+        if any(ch in z for ch in "{}<>|[]"): continue
+        s = sum(k in zl for k in KEYWORDS)
+        if s > score: best, score = z.rstrip(".!?"), s
+    return best if score >= 1 else None
+
+def maak_opener(sigtext, seg, plaats, haak):
+    """Altijd grammaticaal correcte openingszin: haak > letterlijk citaat > standaard."""
+    if haak and haak in HOOK_OPENERS:
+        return HOOK_OPENERS[haak]
+    zin = _schone_citaatzin(sigtext or "")
+    if zin:
+        return f'Tijdens het bekijken van jullie website bleef deze zin me bij: "{zin}."'
+    if plaats:
+        return DEFAULT_OPENER[seg].rstrip(".") + f", hier in {plaats}."
     return DEFAULT_OPENER[seg]
 
 def enrich_one(l):
@@ -366,8 +510,8 @@ def enrich_one(l):
         l["opener"] = l["opener"] or DEFAULT_OPENER[l["seg"]]
         return l
     dom = urlparse(base).netloc.replace("www.", "")
-    email, opener = l["email"], ""
-    sigtext = ""  # verzamelde tekst van home + over-ons voor de haak-vinder
+    email = l["email"]
+    sigtext = ""  # verzamelde tekst van home + over-ons voor de haak-vinder en de openingszin
     for p in PATHS:
         url = base if p == "" else f"{base}/{p}"
         if not _robots_ok(base, p):
@@ -390,12 +534,8 @@ def enrich_one(l):
                     m = rx.search(html)
                     if m: l[netwerk] = m.group(0)
             if p in ("", "over-ons", "about"):
-                tekst = detag(html)
-                sigtext += " " + tekst
-                if not opener:
-                    opener = opener_uit(tekst, l["seg"], l["plaats"])
-            # niet te vroeg stoppen: we willen ook over-ons zien voor de haak
-            if email and opener and sigtext: break
+                sigtext += " " + detag(html)
+            if email and sigtext: break
         except Exception:
             continue
     haak, heeft_app = detect_signals(sigtext)
@@ -403,8 +543,7 @@ def enrich_one(l):
     l["heeft_app"] = heeft_app
     l["email"] = email
     if email and l["bron"] == "OpenStreetMap": l["bron"] = "OSM + website"
-    l["opener"] = opener or (DEFAULT_OPENER[l["seg"]] if not l["plaats"]
-                             else DEFAULT_OPENER[l["seg"]].rstrip(".") + f", hier in {l['plaats']}.")
+    l["opener"] = maak_opener(sigtext, l["seg"], l["plaats"], haak)
     return l
 
 def has_mx(e):
@@ -427,26 +566,29 @@ def ingang(l):
     return f"{'Persoonlijk' if pers else 'Algemene inbox'} \u2022 {'keten (traag)' if keten else 'klein (snel)'}"
 
 def maak_mail(l, brand):
-    seg = l["seg"]; subs = SUBJECTS[seg]
-    subject = subs[int(hashlib.md5(l['naam'].encode()).hexdigest(), 16) % len(subs)]
+    seg = l["seg"] if l["seg"] in STD else "natuurcamping"
+    subject = SUBJECTS_STD.get(seg, SUBJECTS_STD["natuurcamping"])
     if l.get("heeft_app"):
         subject = "Geen tweede app \u2014 juist minder gedoe"
     aanhef = l.get("_vn") or f"team van {l['naam']}"
-    opener = l.get("opener") or DEFAULT_OPENER[seg]
-    ctx = {"aanhef": aanhef, "opener": opener, "naam": l["naam"],
-           "plaats": l["plaats"] or "jullie omgeving", "haak": l.get("haak", "")}
     if brand["eigen_mid"].strip():
-        try: mid = brand["eigen_mid"].format(**ctx)
-        except Exception: mid = brand["eigen_mid"]
+        try:
+            kern = brand["eigen_mid"].format(naam=l["naam"], plaats=l["plaats"] or "jullie omgeving",
+                                             haak=l.get("haak", ""))
+        except Exception:
+            kern = brand["eigen_mid"]
     else:
-        mid = MID[seg].replace("VoiceStamp", brand["merk"])
-    body = f"Beste {aanhef},\n\n{opener} Dat bracht me op een idee.\n\n{mid}"
+        kern = STD[seg]["kern"]
+    kern = kern.replace("VoiceStamp", brand["merk"])
     if l.get("heeft_app"):
-        body += "\n\n" + APP_LINE.replace("VoiceStamp", brand["merk"])
-    body += ("\n\nBenieuwd hoe dat eruitziet? Neem gerust een kijkje:\n" + brand["links"] +
-             "\n\nLijkt het interessant? Dan lees ik graag een reactie!\n\n" + brand["sig"])
-    fu2 = FOLLOWUP_2.format(aanhef=aanhef, merk=brand["merk"], sig=brand["sig"])
-    fu3 = FOLLOWUP_3.format(aanhef=aanhef, sig=brand["sig"])
+        kern += "\n\n" + APP_LINE.replace("VoiceStamp", brand["merk"])
+    segwoord = STD[seg]["segwoord"]
+    linksblok = "Benieuwd hoe dat eruitziet? Neem gerust een kijkje:\n" + brand["links"]
+    body = (f"Beste {aanhef},\n\n{kern}\n\n{linksblok}\n\n"
+            f"Ik laat het graag zien als je denkt dat dit bij jullie {segwoord} past.\n\n"
+            "Met vriendelijke groet,")
+    fu2 = FOLLOWUP_2.format(aanhef=aanhef, merk=brand["merk"])
+    fu3 = FOLLOWUP_3.format(aanhef=aanhef)
     return subject, body, fu2, fu3
 
 def score_lead(l):
@@ -625,14 +767,12 @@ with st.sidebar:
     up = st.file_uploader("Al-verstuurde lijst (csv/xlsx, optioneel)", type=["csv", "xlsx", "xlsm"])
     with st.expander("Jouw merk & pitch (optioneel)"):
         merk = st.text_input("Productnaam", "VoiceStamp")
-        afz_naam = st.text_input("Jouw naam", "Yusuf Tatlicioglu")
-        afz_tel = st.text_input("Telefoon", "0646756497")
-        afz_web = st.text_input("Website", "https://www.voicestamp.nl/")
         links_blok = st.text_area("Links-blok in de mail", LINKS, height=110)
         eigen_mid = st.text_area(
             "Eigen pitch (optioneel)", "",
-            help="Vervangt de standaard uitleg. Gebruik {naam}, {plaats}, {haak}, {opener}. "
-                 "Laat leeg voor de ingebouwde teksten.")
+            help="Vervangt de standaard segmenttekst. Gebruik {naam}, {plaats}, {haak}. "
+                 "Laat leeg voor de ingebouwde teksten. De mail eindigt altijd na 'Met "
+                 "vriendelijke groet,' zodat je eigen handtekening eronder komt.")
     start = st.button("🚀 Start", type="primary", use_container_width=True)
     st.caption("Houd dit tabblad open tijdens het zoeken. Werk per provincie voor een snelle run. "
                "Dezelfde provincie opnieuw ophalen gaat direct (opgeslagen).")
@@ -640,9 +780,7 @@ with st.sidebar:
 if start:
     preset = PRESETS[campagne]
     verstuurd = laad_verstuurd(up.getvalue(), up.name) if up else set()
-    brand = {"merk": merk.strip() or "VoiceStamp", "links": links_blok,
-             "eigen_mid": eigen_mid,
-             "sig": f"Met vriendelijke groet,\n{afz_naam}\n{afz_tel}\n\nFounder {merk}\n{afz_web}"}
+    brand = {"merk": merk.strip() or "VoiceStamp", "links": links_blok, "eigen_mid": eigen_mid}
     bar = st.progress(0.0); box = st.empty(); t0 = time.time()
     try:
         leads = draai(preset, None if heel else provincie, heel, scrape, mx_check,
