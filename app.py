@@ -88,6 +88,61 @@ def crm_load(client, user_id):
 def crm_update(client, row_id, fields):
     client.table("leads").update(fields).eq("id", row_id).execute()
 
+# Koppel Nederlandse (of Engelse) kolomnamen aan de CRM-velden.
+IMPORT_MAP = {
+    "company_name": ["naam", "bedrijf", "company_name", "company", "bedrijfsnaam"],
+    "email": ["e-mail", "email", "e-mail (beste ingang)", "mail", "e-mailadres"],
+    "segment": ["type", "segment", "categorie"],
+    "website": ["website", "url", "site"],
+    "phone": ["telefoon", "phone", "tel", "telefoonnummer"],
+    "status": ["status"],
+    "note": ["notities", "notitie", "note", "opmerkingen"],
+}
+
+def _kies_kolom(kolommen_laag, opties):
+    for o in opties:
+        if o in kolommen_laag:
+            return kolommen_laag[o]
+    return None
+
+def crm_import_uit_bytes(client, user_id, data_bytes, filename):
+    """Lees een geuploade Excel/CSV en zet de leads in het CRM. Geeft (toegevoegd, overgeslagen)."""
+    if filename.lower().endswith((".xlsx", ".xlsm")):
+        df = pd.read_excel(io.BytesIO(data_bytes))
+    else:
+        df = pd.read_csv(io.BytesIO(data_bytes))
+    # kolomnamen -> {kleine letter: originele naam}
+    kol = {str(c).strip().lower(): c for c in df.columns}
+    mapping = {veld: _kies_kolom(kol, opties) for veld, opties in IMPORT_MAP.items()}
+    if not mapping.get("email"):
+        raise ValueError("Geen e-mailkolom gevonden. Zorg dat er een kolom 'E-mail' in staat.")
+    # bestaande e-mails ophalen om dubbel te voorkomen
+    bestaand = set()
+    try:
+        r = client.table("leads").select("email").eq("user_id", user_id).execute()
+        bestaand = {row["email"] for row in (r.data or []) if row.get("email")}
+    except Exception:
+        pass
+    rows, overgeslagen = [], 0
+    for _, rij in df.iterrows():
+        email = str(rij.get(mapping["email"], "") or "").strip().lower()
+        if not email or "@" not in email or email in bestaand:
+            overgeslagen += 1
+            continue
+        bestaand.add(email)
+        def val(veld):
+            c = mapping.get(veld)
+            if not c: return ""
+            v = rij.get(c, "")
+            return "" if pd.isna(v) else str(v).strip()
+        rows.append({"user_id": user_id, "company_name": val("company_name"), "email": email,
+                     "segment": val("segment"), "website": val("website"), "phone": val("phone"),
+                     "status": val("status") or "Nieuw", "note": val("note")})
+    # in blokjes wegschrijven
+    for i in range(0, len(rows), 100):
+        client.table("leads").insert(rows[i:i+100]).execute()
+    return len(rows), overgeslagen
+
 
 # ------------------------------------------------------------------ constants
 OVERPASS = ["https://overpass-api.de/api/interpreter",
@@ -1026,6 +1081,23 @@ with tab_crm:
     else:
             st.divider()
             st.header("📇 Mijn CRM")
+
+            with st.expander("📥 Bestaande Excel importeren"):
+                st.caption("Zet je bestaande leadlijst (bijv. VoiceStamp_leads.xlsx) in \u00e9\u00e9n keer "
+                           "in je CRM. Dubbele e-mailadressen worden overgeslagen. Bestaande statussen "
+                           "blijven behouden.")
+                imp = st.file_uploader("Kies je Excel of CSV", type=["xlsx", "xlsm", "csv"],
+                                       key="crm_import_file")
+                if imp is not None and st.button("Importeren", key="crm_import_btn"):
+                    try:
+                        toe, over = crm_import_uit_bytes(
+                            st.session_state["sb_client"], st.session_state["sb_user"],
+                            imp.getvalue(), imp.name)
+                        st.success(f"{toe} leads ge\u00efmporteerd, {over} overgeslagen (dubbel of geen e-mail).")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Import mislukt: {e}")
+
             try:
                 data = crm_load(st.session_state["sb_client"], st.session_state["sb_user"])
             except Exception as e:
