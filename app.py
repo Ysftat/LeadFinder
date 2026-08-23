@@ -806,23 +806,21 @@ def draai(preset, area, whole, scrape, mx_check, dedupe_dom, n_per_dag, max_site
 # ------------------------------------------------------------------ UI
 st.set_page_config(page_title="VoiceStamp Lead Finder", page_icon="🎙️", layout="wide")
 
-# ---- Huisstijl ----
-ACCENT = "#2E5D4B"   # VoiceStamp-groen; pas dit aan naar je eigen kleur
+# ---- Huisstijl (thema-veilig: vecht niet tegen light/dark mode) ----
+ACCENT = "#2E5D4B"   # VoiceStamp-groen; ook in .streamlit/config.toml zetten
 st.markdown(f"""
 <style>
-  .stApp {{ background: #FafBf9; }}
-  h1, h2, h3 {{ color: {ACCENT}; letter-spacing: -0.3px; }}
-  .vs-header {{ display:flex; align-items:center; gap:14px; margin: 4px 0 2px 0; }}
-  .vs-logo {{ width:44px; height:44px; border-radius:12px; background:{ACCENT}; color:#fff;
-             display:flex; align-items:center; justify-content:center; font-size:24px; }}
-  .vs-title {{ font-size:30px; font-weight:800; color:{ACCENT}; line-height:1; }}
-  .vs-sub {{ color:#5b6b63; margin-top:2px; font-size:14px; }}
-  .stButton>button[kind="primary"] {{ background:{ACCENT}; border:0; border-radius:10px; font-weight:600; }}
-  .stButton>button {{ border-radius:10px; }}
-  section[data-testid="stSidebar"] {{ background:#f2f5f3; }}
-  div[data-testid="stMetricValue"] {{ color:{ACCENT}; }}
-  .stTabs [data-baseweb="tab-list"] {{ gap: 4px; }}
-  .stTabs [data-baseweb="tab"] {{ border-radius:10px 10px 0 0; padding: 8px 16px; }}
+  .vs-header {{ display:flex; align-items:center; gap:14px; margin: 2px 0 6px 0; }}
+  .vs-logo {{ width:46px; height:46px; border-radius:12px; background:{ACCENT}; color:#fff;
+             display:flex; align-items:center; justify-content:center; font-size:24px; flex:0 0 auto; }}
+  .vs-title {{ font-size:30px; font-weight:800; line-height:1.05; }}
+  .vs-sub {{ opacity:0.7; margin-top:3px; font-size:14px; }}
+  .stButton>button {{ border-radius:10px; font-weight:600; }}
+  .stTabs [data-baseweb="tab-list"] {{ gap:4px; }}
+  .stTabs [data-baseweb="tab"] {{ border-radius:10px 10px 0 0; padding:8px 16px; }}
+  .vs-step {{ padding:14px 16px; border:1px solid rgba(128,128,128,0.25); border-radius:14px;
+             height:100%; }}
+  .vs-step b {{ color:{ACCENT}; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -945,7 +943,9 @@ with tab_res:
                             "App?": "ja" if l.get("heeft_app") else "", "Kanaal": l.get("_kanaal", ""),
                             "Batch": l.get("_batch", "")} for l in zicht])
         st.caption(f"{len(zicht)} van {len(leads)} leads getoond, gesorteerd op score.")
-        st.dataframe(df, use_container_width=True, height=380)
+        st.dataframe(df, use_container_width=True, height=380, hide_index=True,
+                     column_config={"Score": st.column_config.ProgressColumn(
+                         "Score", min_value=0, max_value=100, format="%d")})
 
         # --- Kopieer-en-plak: volledige mail per lead ---
         st.subheader("Mail kopiëren per lead")
@@ -1006,7 +1006,16 @@ with tab_res:
         elif crm_beschikbaar():
             st.caption("Log links in bij Account / CRM om deze leads op te slaan.")
     else:
-        st.info("Kies links een campagne en provincie en klik op **Start**.")
+        st.markdown("#### Zo werkt het")
+        s1, s2, s3 = st.columns(3)
+        s1.markdown('<div class="vs-step"><b>1. Kies</b><br>Selecteer links een campagne '
+                    'en provincie en klik op Start.</div>', unsafe_allow_html=True)
+        s2.markdown('<div class="vs-step"><b>2. Bekijk</b><br>Je krijgt leads met e-mail, een haak, '
+                    'een score en een kant-en-klare mail per lead.</div>', unsafe_allow_html=True)
+        s3.markdown('<div class="vs-step"><b>3. Werk bij</b><br>Kopieer de mails, download alles, '
+                    'of sla op in je CRM en volg later op.</div>', unsafe_allow_html=True)
+        st.write("")
+        st.info("Klaar om te beginnen? Kies links een campagne en provincie en klik op **Start**.")
 
 with tab_crm:
     if not st.session_state.get("sb_user"):
@@ -1043,7 +1052,7 @@ with tab_crm:
                         "company_name": st.column_config.TextColumn("Bedrijf", disabled=True),
                         "segment": st.column_config.TextColumn("Type", disabled=True),
                         "email": st.column_config.TextColumn("E-mail", disabled=True),
-                        "score": st.column_config.NumberColumn("Score", disabled=True),
+                        "score": st.column_config.ProgressColumn("Score", min_value=0, max_value=100, format="%d"),
                         "status": st.column_config.SelectboxColumn("Status", options=STATUS_OPTIES),
                         "note": st.column_config.TextColumn("Notitie"),
                         "done": st.column_config.CheckboxColumn("Klaar"),
