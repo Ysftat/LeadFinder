@@ -29,6 +29,66 @@ try:
 except Exception:
     HAVE_DNS = False
 
+# ------------------------------------------------------------------ CRM (Supabase, optioneel)
+try:
+    from supabase import create_client as _create_client
+    SUPABASE_LIB = True
+except Exception:
+    SUPABASE_LIB = False
+
+STATUS_OPTIES = ["Nieuw", "Gemaild", "Reactie", "Afspraak", "Klant", "Afgewezen", "Do not contact"]
+
+def crm_beschikbaar():
+    if not SUPABASE_LIB:
+        return False
+    try:
+        return bool(st.secrets.get("SUPABASE_URL")) and bool(st.secrets.get("SUPABASE_ANON_KEY"))
+    except Exception:
+        return False
+
+def crm_auth(email, password, registreren=False):
+    client = _create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_ANON_KEY"])
+    if registreren:
+        res = client.auth.sign_up({"email": email, "password": password})
+    else:
+        res = client.auth.sign_in_with_password({"email": email, "password": password})
+    sess = getattr(res, "session", None)
+    if sess and getattr(sess, "access_token", None):
+        try:
+            client.postgrest.auth(sess.access_token)
+        except Exception:
+            pass
+    return client, getattr(res, "user", None)
+
+def crm_save(client, user_id, leads):
+    bestaand = set()
+    try:
+        r = client.table("leads").select("email").eq("user_id", user_id).execute()
+        bestaand = {row["email"] for row in (r.data or []) if row.get("email")}
+    except Exception:
+        pass
+    rows = []
+    for l in leads:
+        e = l.get("email")
+        if not e or e in bestaand:
+            continue
+        bestaand.add(e)
+        rows.append({"user_id": user_id, "company_name": l["naam"], "segment": l["type"],
+                     "website": l.get("website", ""), "email": e, "phone": l.get("telefoon", ""),
+                     "score": l.get("_score"), "hook": l.get("haak", ""),
+                     "channel_advice": l.get("_kanaal", ""), "status": "Nieuw"})
+    if rows:
+        client.table("leads").insert(rows).execute()
+    return len(rows)
+
+def crm_load(client, user_id):
+    r = client.table("leads").select("*").eq("user_id", user_id).order("score", desc=True).execute()
+    return r.data or []
+
+def crm_update(client, row_id, fields):
+    client.table("leads").update(fields).eq("id", row_id).execute()
+
+
 # ------------------------------------------------------------------ constants
 OVERPASS = ["https://overpass-api.de/api/interpreter",
             "https://overpass.kumi.systems/api/interpreter"]
@@ -777,6 +837,39 @@ with st.sidebar:
     st.caption("Houd dit tabblad open tijdens het zoeken. Werk per provincie voor een snelle run. "
                "Dezelfde provincie opnieuw ophalen gaat direct (opgeslagen).")
 
+    st.divider()
+    with st.expander("Account / CRM", expanded=False):
+        if not crm_beschikbaar():
+            st.caption("CRM nog niet ingesteld. Zie LEES_MIJ_crm.md om je gratis database te koppelen.")
+        elif st.session_state.get("sb_user"):
+            st.success(f"Ingelogd als {st.session_state.get('sb_email','')}")
+            if st.button("Uitloggen"):
+                for k in ("sb_client", "sb_user", "sb_email"):
+                    st.session_state.pop(k, None)
+                st.rerun()
+        else:
+            em = st.text_input("E-mail", key="login_email")
+            pw = st.text_input("Wachtwoord", type="password", key="login_pw")
+            cA, cB = st.columns(2)
+            if cA.button("Inloggen"):
+                try:
+                    c, u = crm_auth(em, pw, registreren=False)
+                    if u:
+                        st.session_state["sb_client"] = c
+                        st.session_state["sb_user"] = u.id
+                        st.session_state["sb_email"] = em
+                        st.rerun()
+                    else:
+                        st.error("Inloggen mislukt. Controleer je gegevens.")
+                except Exception as e:
+                    st.error(f"Inloggen mislukt: {e}")
+            if cB.button("Registreren"):
+                try:
+                    crm_auth(em, pw, registreren=True)
+                    st.info("Account aangemaakt. Bevestig eventueel je e-mail en log daarna in.")
+                except Exception as e:
+                    st.error(f"Registreren mislukt: {e}")
+
 if start:
     preset = PRESETS[campagne]
     verstuurd = laad_verstuurd(up.getvalue(), up.name) if up else set()
@@ -864,8 +957,69 @@ if st.session_state.get("leads"):
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     d2.download_button("⬇️ CSV voor Smartlead/Instantly", build_csv(zicht),
                        file_name="voicestamp_leads.csv", mime="text/csv", use_container_width=True)
+
+    if st.session_state.get("sb_user"):
+        if st.button("💾 Deze selectie opslaan in mijn CRM", use_container_width=True):
+            try:
+                n = crm_save(st.session_state["sb_client"], st.session_state["sb_user"], zicht)
+                st.success(f"{n} nieuwe leads opgeslagen in je CRM (dubbele e-mails overgeslagen).")
+            except Exception as e:
+                st.error(f"Opslaan mislukt: {e}")
+    elif crm_beschikbaar():
+        st.caption("Log links in bij Account / CRM om deze leads op te slaan.")
 else:
     st.info("Kies links een campagne en provincie en klik op **Start**.")
+
+# ------------------------------------------------------------------ CRM-weergave
+if st.session_state.get("sb_user"):
+    st.divider()
+    st.header("📇 Mijn CRM")
+    try:
+        data = crm_load(st.session_state["sb_client"], st.session_state["sb_user"])
+    except Exception as e:
+        data = []
+        st.error(f"Kon CRM niet laden: {e}")
+    if not data:
+        st.caption("Nog geen leads opgeslagen. Zoek hierboven en klik op 'Opslaan in mijn CRM'.")
+    else:
+        cdf = pd.DataFrame(data)
+        for kol in ("note", "status", "done", "company_name", "segment", "email", "score"):
+            if kol not in cdf.columns:
+                cdf[kol] = "" if kol != "done" else False
+        cdf["note"] = cdf["note"].fillna("")
+        cdf["done"] = cdf["done"].fillna(False)
+
+        stat = st.multiselect("Filter op status", STATUS_OPTIES, default=[])
+        toon = cdf[cdf["status"].isin(stat)] if stat else cdf
+
+        st.caption(f"{len(toon)} van {len(cdf)} leads.")
+        edit = st.data_editor(
+            toon[["company_name", "segment", "email", "score", "status", "note", "done"]],
+            use_container_width=True, height=420, key="crm_editor",
+            column_config={
+                "company_name": st.column_config.TextColumn("Bedrijf", disabled=True),
+                "segment": st.column_config.TextColumn("Type", disabled=True),
+                "email": st.column_config.TextColumn("E-mail", disabled=True),
+                "score": st.column_config.NumberColumn("Score", disabled=True),
+                "status": st.column_config.SelectboxColumn("Status", options=STATUS_OPTIES),
+                "note": st.column_config.TextColumn("Notitie"),
+                "done": st.column_config.CheckboxColumn("Klaar"),
+            })
+        if st.button("Wijzigingen opslaan", type="primary"):
+            fouten = 0
+            for idx in edit.index:
+                rid = cdf.loc[idx, "id"]
+                velden = {"status": edit.loc[idx, "status"],
+                          "note": edit.loc[idx, "note"] or "",
+                          "done": bool(edit.loc[idx, "done"])}
+                try:
+                    crm_update(st.session_state["sb_client"], rid, velden)
+                except Exception:
+                    fouten += 1
+            if fouten:
+                st.warning(f"Opgeslagen, maar {fouten} rijen gaven een fout.")
+            else:
+                st.success("Wijzigingen opgeslagen.")
 
 st.divider()
 st.caption(
