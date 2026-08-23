@@ -805,8 +805,33 @@ def draai(preset, area, whole, scrape, mx_check, dedupe_dom, n_per_dag, max_site
 
 # ------------------------------------------------------------------ UI
 st.set_page_config(page_title="VoiceStamp Lead Finder", page_icon="🎙️", layout="wide")
-st.title("🎙️ VoiceStamp Lead Finder")
-st.caption("Gratis leads uit OpenStreetMap, verrijkt met e-mail, social links, concept-mail en verzendbatches.")
+
+# ---- Huisstijl ----
+ACCENT = "#2E5D4B"   # VoiceStamp-groen; pas dit aan naar je eigen kleur
+st.markdown(f"""
+<style>
+  .stApp {{ background: #FafBf9; }}
+  h1, h2, h3 {{ color: {ACCENT}; letter-spacing: -0.3px; }}
+  .vs-header {{ display:flex; align-items:center; gap:14px; margin: 4px 0 2px 0; }}
+  .vs-logo {{ width:44px; height:44px; border-radius:12px; background:{ACCENT}; color:#fff;
+             display:flex; align-items:center; justify-content:center; font-size:24px; }}
+  .vs-title {{ font-size:30px; font-weight:800; color:{ACCENT}; line-height:1; }}
+  .vs-sub {{ color:#5b6b63; margin-top:2px; font-size:14px; }}
+  .stButton>button[kind="primary"] {{ background:{ACCENT}; border:0; border-radius:10px; font-weight:600; }}
+  .stButton>button {{ border-radius:10px; }}
+  section[data-testid="stSidebar"] {{ background:#f2f5f3; }}
+  div[data-testid="stMetricValue"] {{ color:{ACCENT}; }}
+  .stTabs [data-baseweb="tab-list"] {{ gap: 4px; }}
+  .stTabs [data-baseweb="tab"] {{ border-radius:10px 10px 0 0; padding: 8px 16px; }}
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown(
+    '<div class="vs-header"><div class="vs-logo">🎙️</div>'
+    '<div><div class="vs-title">VoiceStamp Lead Finder</div>'
+    '<div class="vs-sub">Vind leads, schrijf de mails, beheer je opvolging.</div></div></div>',
+    unsafe_allow_html=True)
+st.write("")
 
 with st.sidebar:
     st.header("Instellingen")
@@ -848,27 +873,37 @@ with st.sidebar:
                     st.session_state.pop(k, None)
                 st.rerun()
         else:
-            em = st.text_input("E-mail", key="login_email")
-            pw = st.text_input("Wachtwoord", type="password", key="login_pw")
+            st.text_input("E-mail", key="login_email")
+            st.text_input("Wachtwoord", type="password", key="login_pw")
             cA, cB = st.columns(2)
+            _em = (st.session_state.get("login_email") or "").strip()
+            _pw = st.session_state.get("login_pw") or ""
             if cA.button("Inloggen"):
-                try:
-                    c, u = crm_auth(em, pw, registreren=False)
-                    if u:
-                        st.session_state["sb_client"] = c
-                        st.session_state["sb_user"] = u.id
-                        st.session_state["sb_email"] = em
-                        st.rerun()
-                    else:
-                        st.error("Inloggen mislukt. Controleer je gegevens.")
-                except Exception as e:
-                    st.error(f"Inloggen mislukt: {e}")
+                if not _em or not _pw:
+                    st.error("Vul een e-mail en wachtwoord in.")
+                else:
+                    try:
+                        c, u = crm_auth(_em, _pw, registreren=False)
+                        if u:
+                            st.session_state["sb_client"] = c
+                            st.session_state["sb_user"] = u.id
+                            st.session_state["sb_email"] = _em
+                            st.rerun()
+                        else:
+                            st.error("Inloggen mislukt. Controleer je gegevens.")
+                    except Exception as e:
+                        st.error(f"Inloggen mislukt: {e}")
             if cB.button("Registreren"):
-                try:
-                    crm_auth(em, pw, registreren=True)
-                    st.info("Account aangemaakt. Bevestig eventueel je e-mail en log daarna in.")
-                except Exception as e:
-                    st.error(f"Registreren mislukt: {e}")
+                if not _em or not _pw:
+                    st.error("Vul een e-mail en wachtwoord in.")
+                elif len(_pw) < 6:
+                    st.error("Wachtwoord moet minstens 6 tekens zijn.")
+                else:
+                    try:
+                        crm_auth(_em, _pw, registreren=True)
+                        st.info("Account aangemaakt. Bevestig eventueel je e-mail en log daarna in.")
+                    except Exception as e:
+                        st.error(f"Registreren mislukt: {e}")
 
 if start:
     preset = PRESETS[campagne]
@@ -884,142 +919,150 @@ if start:
     except Exception as e:
         box.error(f"Er ging iets mis: {e}")
 
-if st.session_state.get("leads"):
-    leads = st.session_state["leads"]
-    met = sum(1 for l in leads if l["email"])
-    haken = sum(1 for l in leads if l.get("haak"))
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Leads totaal", len(leads))
-    c2.metric("Met e-mail", met)
-    c3.metric("Met haak", haken)
-    c4.metric("Heeft app", sum(1 for l in leads if l.get("heeft_app")))
-    c5.metric("Verzenddagen", (met // max(int(n_per_dag), 1)) + 1 if met else 0)
+tab_res, tab_crm = st.tabs(["📋 Resultaten & mails", "📇 Mijn CRM"])
 
-    f1, f2, f3 = st.columns([2, 1, 1])
-    min_score = f1.slider("Toon alleen leads met score \u2265", 0, 100, 0, step=5)
-    alleen_mail = f2.checkbox("Alleen met e-mail", value=False)
-    alleen_haak = f3.checkbox("Alleen met haak", value=False)
-    zicht = [l for l in leads if l.get("_score", 0) >= min_score
-             and (l["email"] or not alleen_mail) and (l.get("haak") or not alleen_haak)]
+with tab_res:
+    if st.session_state.get("leads"):
+        leads = st.session_state["leads"]
+        met = sum(1 for l in leads if l["email"])
+        haken = sum(1 for l in leads if l.get("haak"))
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Leads totaal", len(leads))
+        c2.metric("Met e-mail", met)
+        c3.metric("Met haak", haken)
+        c4.metric("Heeft app", sum(1 for l in leads if l.get("heeft_app")))
+        c5.metric("Verzenddagen", (met // max(int(n_per_dag), 1)) + 1 if met else 0)
 
-    df = pd.DataFrame([{"Score": l.get("_score", 0), "Naam": l["naam"], "Type": l["type"],
-                        "Plaats": l["plaats"], "E-mail": l["email"], "Haak": l.get("haak", ""),
-                        "App?": "ja" if l.get("heeft_app") else "", "Kanaal": l.get("_kanaal", ""),
-                        "Batch": l.get("_batch", "")} for l in zicht])
-    st.caption(f"{len(zicht)} van {len(leads)} leads getoond, gesorteerd op score.")
-    st.dataframe(df, use_container_width=True, height=380)
+        f1, f2, f3 = st.columns([2, 1, 1])
+        min_score = f1.slider("Toon alleen leads met score \u2265", 0, 100, 0, step=5)
+        alleen_mail = f2.checkbox("Alleen met e-mail", value=False)
+        alleen_haak = f3.checkbox("Alleen met haak", value=False)
+        zicht = [l for l in leads if l.get("_score", 0) >= min_score
+                 and (l["email"] or not alleen_mail) and (l.get("haak") or not alleen_haak)]
 
-    # --- Kopieer-en-plak: volledige mail per lead ---
-    st.subheader("Mail kopiëren per lead")
-    mailbaar = [l for l in zicht if l["email"]]
-    if mailbaar:
-        keuze = st.selectbox(
-            "Kies een lead",
-            range(len(mailbaar)),
-            format_func=lambda i: f"{mailbaar[i]['naam']} — {mailbaar[i]['email']}"
-                                  f" (score {mailbaar[i].get('_score', 0)})")
-        l = mailbaar[keuze]
-        info = f"**Aan:** {l['email']}"
-        if l.get("_kanaal"): info += f"  •  **Advies:** {l['_kanaal']}"
-        if l.get("haak"): info += f"  •  **Haak:** {l['haak']}"
-        st.markdown(info)
-        tab1, tab2, tab3 = st.tabs(["Mail 1", "Opvolgmail 2", "Opvolgmail 3"])
-        with tab1:
-            st.text_input("Onderwerp", l["_subject"], key=f"subj_{keuze}")
-            st.code(l["_body"], language=None)
-        with tab2:
-            st.code(l.get("_fu2", ""), language=None)
-        with tab3:
-            st.code(l.get("_fu3", ""), language=None)
-        st.caption("Tip: klik rechtsboven in het grijze vak op het kopieer-icoon om de mail te kopiëren.")
+        df = pd.DataFrame([{"Score": l.get("_score", 0), "Naam": l["naam"], "Type": l["type"],
+                            "Plaats": l["plaats"], "E-mail": l["email"], "Haak": l.get("haak", ""),
+                            "App?": "ja" if l.get("heeft_app") else "", "Kanaal": l.get("_kanaal", ""),
+                            "Batch": l.get("_batch", "")} for l in zicht])
+        st.caption(f"{len(zicht)} van {len(leads)} leads getoond, gesorteerd op score.")
+        st.dataframe(df, use_container_width=True, height=380)
 
-        # --- Alle mails van één verzenddag in één keer ---
-        st.markdown("**Of pak een hele verzenddag in één keer:**")
-        dagen = sorted({l["_batch"] for l in mailbaar if l.get("_batch")},
-                       key=lambda d: int(d.split()[-1]) if d.split()[-1].isdigit() else 999)
-        if dagen:
-            dag = st.selectbox("Verzenddag", dagen)
-            dagleads = [l for l in mailbaar if l.get("_batch") == dag]
-            blok = "\n\n════════════════════\n\n".join(
-                f"AAN: {l['email']}\nONDERWERP: {l['_subject']}\n\n{l['_body']}" for l in dagleads)
-            st.caption(f"{len(dagleads)} mails in {dag}.")
-            st.code(blok, language=None)
-            st.download_button(f"⬇️ Excel van {dag}", build_xlsx(dagleads),
-                               file_name=f"voicestamp_leads_{dag.replace(' ', '_').lower()}.xlsx",
-                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    else:
-        st.info("Geen leads met e-mail in de huidige selectie.")
+        # --- Kopieer-en-plak: volledige mail per lead ---
+        st.subheader("Mail kopiëren per lead")
+        mailbaar = [l for l in zicht if l["email"]]
+        if mailbaar:
+            keuze = st.selectbox(
+                "Kies een lead",
+                range(len(mailbaar)),
+                format_func=lambda i: f"{mailbaar[i]['naam']} — {mailbaar[i]['email']}"
+                                      f" (score {mailbaar[i].get('_score', 0)})")
+            l = mailbaar[keuze]
+            info = f"**Aan:** {l['email']}"
+            if l.get("_kanaal"): info += f"  •  **Advies:** {l['_kanaal']}"
+            if l.get("haak"): info += f"  •  **Haak:** {l['haak']}"
+            st.markdown(info)
+            tab1, tab2, tab3 = st.tabs(["Mail 1", "Opvolgmail 2", "Opvolgmail 3"])
+            with tab1:
+                st.text_input("Onderwerp", l["_subject"], key=f"subj_{keuze}")
+                st.code(l["_body"], language=None)
+            with tab2:
+                st.code(l.get("_fu2", ""), language=None)
+            with tab3:
+                st.code(l.get("_fu3", ""), language=None)
+            st.caption("Tip: klik rechtsboven in het grijze vak op het kopieer-icoon om de mail te kopiëren.")
 
-    st.markdown("**Download de volledige selectie:**")
-    d1, d2 = st.columns(2)
-    d1.download_button("⬇️ Excel (alle kolommen: mails, haak, score, kanaal)", build_xlsx(zicht),
-                       file_name="voicestamp_leads.xlsx", use_container_width=True,
-                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    d2.download_button("⬇️ CSV voor Smartlead/Instantly", build_csv(zicht),
-                       file_name="voicestamp_leads.csv", mime="text/csv", use_container_width=True)
+            # --- Alle mails van één verzenddag in één keer ---
+            st.markdown("**Of pak een hele verzenddag in één keer:**")
+            dagen = sorted({l["_batch"] for l in mailbaar if l.get("_batch")},
+                           key=lambda d: int(d.split()[-1]) if d.split()[-1].isdigit() else 999)
+            if dagen:
+                dag = st.selectbox("Verzenddag", dagen)
+                dagleads = [l for l in mailbaar if l.get("_batch") == dag]
+                blok = "\n\n════════════════════\n\n".join(
+                    f"AAN: {l['email']}\nONDERWERP: {l['_subject']}\n\n{l['_body']}" for l in dagleads)
+                st.caption(f"{len(dagleads)} mails in {dag}.")
+                st.code(blok, language=None)
+                st.download_button(f"⬇️ Excel van {dag}", build_xlsx(dagleads),
+                                   file_name=f"voicestamp_leads_{dag.replace(' ', '_').lower()}.xlsx",
+                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        else:
+            st.info("Geen leads met e-mail in de huidige selectie.")
 
-    if st.session_state.get("sb_user"):
-        if st.button("💾 Deze selectie opslaan in mijn CRM", use_container_width=True):
-            try:
-                n = crm_save(st.session_state["sb_client"], st.session_state["sb_user"], zicht)
-                st.success(f"{n} nieuwe leads opgeslagen in je CRM (dubbele e-mails overgeslagen).")
-            except Exception as e:
-                st.error(f"Opslaan mislukt: {e}")
-    elif crm_beschikbaar():
-        st.caption("Log links in bij Account / CRM om deze leads op te slaan.")
-else:
-    st.info("Kies links een campagne en provincie en klik op **Start**.")
+        st.markdown("**Download de volledige selectie:**")
+        d1, d2 = st.columns(2)
+        d1.download_button("⬇️ Excel (alle kolommen: mails, haak, score, kanaal)", build_xlsx(zicht),
+                           file_name="voicestamp_leads.xlsx", use_container_width=True,
+                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        d2.download_button("⬇️ CSV voor Smartlead/Instantly", build_csv(zicht),
+                           file_name="voicestamp_leads.csv", mime="text/csv", use_container_width=True)
 
-# ------------------------------------------------------------------ CRM-weergave
-if st.session_state.get("sb_user"):
-    st.divider()
-    st.header("📇 Mijn CRM")
-    try:
-        data = crm_load(st.session_state["sb_client"], st.session_state["sb_user"])
-    except Exception as e:
-        data = []
-        st.error(f"Kon CRM niet laden: {e}")
-    if not data:
-        st.caption("Nog geen leads opgeslagen. Zoek hierboven en klik op 'Opslaan in mijn CRM'.")
-    else:
-        cdf = pd.DataFrame(data)
-        for kol in ("note", "status", "done", "company_name", "segment", "email", "score"):
-            if kol not in cdf.columns:
-                cdf[kol] = "" if kol != "done" else False
-        cdf["note"] = cdf["note"].fillna("")
-        cdf["done"] = cdf["done"].fillna(False)
-
-        stat = st.multiselect("Filter op status", STATUS_OPTIES, default=[])
-        toon = cdf[cdf["status"].isin(stat)] if stat else cdf
-
-        st.caption(f"{len(toon)} van {len(cdf)} leads.")
-        edit = st.data_editor(
-            toon[["company_name", "segment", "email", "score", "status", "note", "done"]],
-            use_container_width=True, height=420, key="crm_editor",
-            column_config={
-                "company_name": st.column_config.TextColumn("Bedrijf", disabled=True),
-                "segment": st.column_config.TextColumn("Type", disabled=True),
-                "email": st.column_config.TextColumn("E-mail", disabled=True),
-                "score": st.column_config.NumberColumn("Score", disabled=True),
-                "status": st.column_config.SelectboxColumn("Status", options=STATUS_OPTIES),
-                "note": st.column_config.TextColumn("Notitie"),
-                "done": st.column_config.CheckboxColumn("Klaar"),
-            })
-        if st.button("Wijzigingen opslaan", type="primary"):
-            fouten = 0
-            for idx in edit.index:
-                rid = cdf.loc[idx, "id"]
-                velden = {"status": edit.loc[idx, "status"],
-                          "note": edit.loc[idx, "note"] or "",
-                          "done": bool(edit.loc[idx, "done"])}
+        if st.session_state.get("sb_user"):
+            if st.button("💾 Deze selectie opslaan in mijn CRM", use_container_width=True):
                 try:
-                    crm_update(st.session_state["sb_client"], rid, velden)
-                except Exception:
-                    fouten += 1
-            if fouten:
-                st.warning(f"Opgeslagen, maar {fouten} rijen gaven een fout.")
+                    n = crm_save(st.session_state["sb_client"], st.session_state["sb_user"], zicht)
+                    st.success(f"{n} nieuwe leads opgeslagen in je CRM (dubbele e-mails overgeslagen).")
+                except Exception as e:
+                    st.error(f"Opslaan mislukt: {e}")
+        elif crm_beschikbaar():
+            st.caption("Log links in bij Account / CRM om deze leads op te slaan.")
+    else:
+        st.info("Kies links een campagne en provincie en klik op **Start**.")
+
+with tab_crm:
+    if not st.session_state.get("sb_user"):
+        if crm_beschikbaar():
+            st.info("Log links in bij **Account / CRM** om je opgeslagen leads te beheren.")
+        else:
+            st.info("Het CRM is nog niet ingesteld. Zie **LEES_MIJ_crm.md** om je gratis database te koppelen.")
+    else:
+            st.divider()
+            st.header("📇 Mijn CRM")
+            try:
+                data = crm_load(st.session_state["sb_client"], st.session_state["sb_user"])
+            except Exception as e:
+                data = []
+                st.error(f"Kon CRM niet laden: {e}")
+            if not data:
+                st.caption("Nog geen leads opgeslagen. Zoek hierboven en klik op 'Opslaan in mijn CRM'.")
             else:
-                st.success("Wijzigingen opgeslagen.")
+                cdf = pd.DataFrame(data)
+                for kol in ("note", "status", "done", "company_name", "segment", "email", "score"):
+                    if kol not in cdf.columns:
+                        cdf[kol] = "" if kol != "done" else False
+                cdf["note"] = cdf["note"].fillna("")
+                cdf["done"] = cdf["done"].fillna(False)
+
+                stat = st.multiselect("Filter op status", STATUS_OPTIES, default=[])
+                toon = cdf[cdf["status"].isin(stat)] if stat else cdf
+
+                st.caption(f"{len(toon)} van {len(cdf)} leads.")
+                edit = st.data_editor(
+                    toon[["company_name", "segment", "email", "score", "status", "note", "done"]],
+                    use_container_width=True, height=420, key="crm_editor",
+                    column_config={
+                        "company_name": st.column_config.TextColumn("Bedrijf", disabled=True),
+                        "segment": st.column_config.TextColumn("Type", disabled=True),
+                        "email": st.column_config.TextColumn("E-mail", disabled=True),
+                        "score": st.column_config.NumberColumn("Score", disabled=True),
+                        "status": st.column_config.SelectboxColumn("Status", options=STATUS_OPTIES),
+                        "note": st.column_config.TextColumn("Notitie"),
+                        "done": st.column_config.CheckboxColumn("Klaar"),
+                    })
+                if st.button("Wijzigingen opslaan", type="primary"):
+                    fouten = 0
+                    for idx in edit.index:
+                        rid = cdf.loc[idx, "id"]
+                        velden = {"status": edit.loc[idx, "status"],
+                                  "note": edit.loc[idx, "note"] or "",
+                                  "done": bool(edit.loc[idx, "done"])}
+                        try:
+                            crm_update(st.session_state["sb_client"], rid, velden)
+                        except Exception:
+                            fouten += 1
+                    if fouten:
+                        st.warning(f"Opgeslagen, maar {fouten} rijen gaven een fout.")
+                    else:
+                        st.success("Wijzigingen opgeslagen.")
 
 st.divider()
 st.caption(
