@@ -1,0 +1,5 @@
+# Thema voor VoiceStamp Lead Finder.
+# primaryColor kleurt automatisch de knoppen, sliders en accenten,
+# in zowel light- als dark-mode. Pas 'primaryColor' aan naar je eigen kleur.
+[theme]
+primaryColor = "#2E5D4B"
