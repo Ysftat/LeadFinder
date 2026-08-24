@@ -85,8 +85,63 @@ def crm_load(client, user_id):
     r = client.table("leads").select("*").eq("user_id", user_id).order("score", desc=True).execute()
     return r.data or []
 
-def crm_update(client, row_id, fields):
-    client.table("leads").update(fields).eq("id", row_id).execute()
+def crm_update(client, row_id, user_id, fields):
+    # Defensief: filter op id EN user_id (bovenop row-level security in Supabase).
+    client.table("leads").update(fields).eq("id", row_id).eq("user_id", user_id).execute()
+
+def crm_add_activity(client, user_id, lead_id, type_, description=""):
+    try:
+        client.table("activities").insert({
+            "user_id": user_id, "lead_id": lead_id, "type": type_, "description": description
+        }).execute()
+    except Exception:
+        pass
+
+def crm_load_activities(client, user_id, lead_id):
+    try:
+        r = (client.table("activities").select("*")
+             .eq("user_id", user_id).eq("lead_id", lead_id)
+             .order("created_at", desc=True).execute())
+        return r.data or []
+    except Exception:
+        return []
+
+def crm_lead_id_by_email(client, user_id, email):
+    try:
+        r = client.table("leads").select("id").eq("user_id", user_id).eq("email", email).limit(1).execute()
+        if r.data:
+            return r.data[0]["id"]
+    except Exception:
+        pass
+    return None
+
+def crm_sent_today(client, user_id):
+    """Aantal 'Mail verstuurd'-activiteiten van vandaag (voor de dagelijkse limiet)."""
+    from datetime import date
+    try:
+        r = (client.table("activities").select("id")
+             .eq("user_id", user_id).eq("type", "Mail verstuurd")
+             .gte("created_at", date.today().isoformat()).execute())
+        return len(r.data or [])
+    except Exception:
+        return 0
+
+# ---------------------------------------------------------------- Zoho-mail (SMTP)
+import smtplib, ssl
+from email.mime.text import MIMEText
+from email.utils import formataddr
+
+MAIL_DAG_LIMIET = 10
+
+def zoho_send(host, port, user, app_pw, from_name, to_addr, subject, body):
+    msg = MIMEText(body, "plain", "utf-8")
+    msg["Subject"] = subject
+    msg["From"] = formataddr((from_name, user))
+    msg["To"] = to_addr
+    ctx = ssl.create_default_context()
+    with smtplib.SMTP_SSL(host, int(port), context=ctx, timeout=20) as s:
+        s.login(user, app_pw)
+        s.sendmail(user, [to_addr], msg.as_string())
 
 # Koppel Nederlandse (of Engelse) kolomnamen aan de CRM-velden.
 IMPORT_MAP = {
@@ -958,6 +1013,41 @@ with st.sidebar:
                     except Exception as e:
                         st.error(f"Registreren mislukt: {e}")
 
+    with st.expander("Mailen (Zoho)", expanded=False):
+        if st.session_state.get("zoho_user"):
+            st.success(f"Mail actief: {st.session_state['zoho_user']}")
+            rest = MAIL_DAG_LIMIET
+            if st.session_state.get("sb_user"):
+                rest = MAIL_DAG_LIMIET - crm_sent_today(st.session_state["sb_client"], st.session_state["sb_user"])
+            else:
+                rest = MAIL_DAG_LIMIET - st.session_state.get("zoho_sent_today", 0)
+            st.caption(f"Nog {max(rest,0)} van {MAIL_DAG_LIMIET} mails vandaag.")
+            if st.button("Mail uitloggen"):
+                for k in ("zoho_user", "zoho_pw", "zoho_host", "zoho_from", "zoho_sig"):
+                    st.session_state.pop(k, None)
+                st.rerun()
+        else:
+            st.caption("Log in om rechtstreeks vanuit de app te mailen (max 10 per dag).")
+            zu = st.text_input("Zoho e-mail", key="zoho_email_in")
+            zp = st.text_input("App-wachtwoord", type="password", key="zoho_pw_in",
+                               help="Maak in Zoho een app-specifiek wachtwoord aan (niet je gewone wachtwoord).")
+            zh = st.selectbox("Server", ["smtp.zoho.eu", "smtp.zoho.com"], key="zoho_host_in")
+            zf = st.text_input("Afzendernaam", "Yusuf Tatlicioglu", key="zoho_from_in")
+            zsig = st.text_area("Handtekening (onder de mail)",
+                                "Yusuf Tatlicioglu\n0646756497\n\nFounder VoiceStamp\nhttps://www.voicestamp.nl/",
+                                key="zoho_sig_in", height=90,
+                                help="Wordt onder 'Met vriendelijke groet,' geplaatst bij app-verzending.")
+            if st.button("Mail inloggen"):
+                if not (zu.strip() and zp):
+                    st.error("Vul je Zoho-e-mail en app-wachtwoord in.")
+                else:
+                    st.session_state["zoho_user"] = zu.strip()
+                    st.session_state["zoho_pw"] = zp
+                    st.session_state["zoho_host"] = zh
+                    st.session_state["zoho_from"] = zf.strip() or zu.strip()
+                    st.session_state["zoho_sig"] = zsig
+                    st.rerun()
+
 if start:
     preset = PRESETS[campagne]
     verstuurd = laad_verstuurd(up.getvalue(), up.name) if up else set()
@@ -1018,8 +1108,41 @@ with tab_res:
             st.markdown(info)
             tab1, tab2, tab3 = st.tabs(["Mail 1", "Opvolgmail 2", "Opvolgmail 3"])
             with tab1:
-                st.text_input("Onderwerp", l["_subject"], key=f"subj_{keuze}")
+                onderwerp = st.text_input("Onderwerp", l["_subject"], key=f"subj_{keuze}")
                 st.code(l["_body"], language=None)
+                if st.session_state.get("zoho_user"):
+                    # dagteller
+                    if st.session_state.get("sb_user"):
+                        gedaan = crm_sent_today(st.session_state["sb_client"], st.session_state["sb_user"])
+                    else:
+                        gedaan = st.session_state.get("zoho_sent_today", 0)
+                    rest = MAIL_DAG_LIMIET - gedaan
+                    if st.button(f"✉️ Verstuur via Zoho ({max(rest,0)} over vandaag)", key=f"send_{keuze}"):
+                        if rest <= 0:
+                            st.warning("Je dagelijkse 10 mails zijn verstuurd. Morgen weer.")
+                        else:
+                            body_send = l["_body"] + "\n" + st.session_state.get("zoho_sig", "")
+                            try:
+                                zoho_send(st.session_state["zoho_host"], 465,
+                                          st.session_state["zoho_user"], st.session_state["zoho_pw"],
+                                          st.session_state.get("zoho_from", st.session_state["zoho_user"]),
+                                          l["email"], onderwerp, body_send)
+                                st.success(f"Mail verstuurd naar {l['email']}.")
+                                st.session_state["zoho_sent_today"] = gedaan + 1
+                                # CRM bijwerken + loggen indien ingelogd
+                                if st.session_state.get("sb_user"):
+                                    cl = st.session_state["sb_client"]; uid = st.session_state["sb_user"]
+                                    lid = crm_lead_id_by_email(cl, uid, l["email"])
+                                    if not lid:
+                                        crm_save(cl, uid, [l])
+                                        lid = crm_lead_id_by_email(cl, uid, l["email"])
+                                    if lid:
+                                        crm_update(cl, lid, uid, {"status": "Gemaild"})
+                                        crm_add_activity(cl, uid, lid, "Mail verstuurd", onderwerp)
+                            except Exception as e:
+                                st.error(f"Versturen mislukt: {e}")
+                elif crm_beschikbaar() or True:
+                    st.caption("Wil je direct vanuit de app mailen? Log links in bij **Mailen (Zoho)**.")
             with tab2:
                 st.code(l.get("_fu2", ""), language=None)
             with tab3:
@@ -1055,6 +1178,18 @@ with tab_res:
             if st.button("💾 Deze selectie opslaan in mijn CRM", use_container_width=True):
                 try:
                     n = crm_save(st.session_state["sb_client"], st.session_state["sb_user"], zicht)
+                    # log 'Lead opgeslagen' voor de nieuw toegevoegde leads
+                    try:
+                        cl = st.session_state["sb_client"]; uid = st.session_state["sb_user"]
+                        for l in zicht:
+                            if l.get("email"):
+                                lid = crm_lead_id_by_email(cl, uid, l["email"])
+                                if lid:
+                                    acts = crm_load_activities(cl, uid, lid)
+                                    if not acts:
+                                        crm_add_activity(cl, uid, lid, "Lead opgeslagen", l.get("naam", ""))
+                    except Exception:
+                        pass
                     st.success(f"{n} nieuwe leads opgeslagen in je CRM (dubbele e-mails overgeslagen).")
                 except Exception as e:
                     st.error(f"Opslaan mislukt: {e}")
@@ -1106,19 +1241,48 @@ with tab_crm:
             if not data:
                 st.caption("Nog geen leads opgeslagen. Zoek hierboven en klik op 'Opslaan in mijn CRM'.")
             else:
+                from datetime import date as _date
                 cdf = pd.DataFrame(data)
-                for kol in ("note", "status", "done", "company_name", "segment", "email", "score"):
+                for kol, leeg in [("note", ""), ("status", "Nieuw"), ("segment", ""),
+                                  ("company_name", ""), ("email", ""), ("score", 0),
+                                  ("next_action", ""), ("next_action_date", None), ("dnc_reason", "")]:
                     if kol not in cdf.columns:
-                        cdf[kol] = "" if kol != "done" else False
+                        cdf[kol] = leeg
                 cdf["note"] = cdf["note"].fillna("")
-                cdf["done"] = cdf["done"].fillna(False)
+                cdf["next_action"] = cdf["next_action"].fillna("")
+                cdf["dnc_reason"] = cdf["dnc_reason"].fillna("")
 
+                # ---- Dashboard ----
+                vandaag = _date.today().isoformat()
+                def _telt(s): return int((cdf["status"] == s).sum())
+                actief = ~cdf["status"].isin(["Klant", "Afgewezen", "Do not contact"])
+                opvolg = cdf[(cdf["next_action_date"].notna()) &
+                             (cdf["next_action_date"].astype(str) <= vandaag) & actief]
+                st.markdown("### Mijn overzicht")
+                m = st.columns(6)
+                m[0].metric("Nieuw", _telt("Nieuw"))
+                m[1].metric("Gemaild", _telt("Gemaild"))
+                m[2].metric("Follow-up nodig", len(opvolg))
+                m[3].metric("Reacties", _telt("Reactie"))
+                m[4].metric("Afspraken", _telt("Afspraak"))
+                m[5].metric("Klanten", _telt("Klant"))
+
+                if len(opvolg):
+                    st.markdown("#### 🔥 Vandaag opvolgen")
+                    st.dataframe(
+                        opvolg[["company_name", "status", "next_action", "next_action_date"]]
+                        .rename(columns={"company_name": "Bedrijf", "status": "Status",
+                                         "next_action": "Volgende actie", "next_action_date": "Datum"}),
+                        use_container_width=True, hide_index=True)
+
+                st.divider()
+                st.markdown("### Alle leads")
                 stat = st.multiselect("Filter op status", STATUS_OPTIES, default=[])
                 toon = cdf[cdf["status"].isin(stat)] if stat else cdf
-
                 st.caption(f"{len(toon)} van {len(cdf)} leads.")
                 edit = st.data_editor(
-                    toon[["company_name", "segment", "email", "score", "status", "note", "done"]],
+                    toon[["company_name", "segment", "email", "score", "status",
+                          "next_action", "next_action_date", "note", "dnc_reason"]],
                     use_container_width=True, height=420, key="crm_editor",
                     column_config={
                         "company_name": st.column_config.TextColumn("Bedrijf", disabled=True),
@@ -1126,24 +1290,58 @@ with tab_crm:
                         "email": st.column_config.TextColumn("E-mail", disabled=True),
                         "score": st.column_config.ProgressColumn("Score", min_value=0, max_value=100, format="%d"),
                         "status": st.column_config.SelectboxColumn("Status", options=STATUS_OPTIES),
+                        "next_action": st.column_config.TextColumn("Volgende actie"),
+                        "next_action_date": st.column_config.DateColumn("Datum volg. actie"),
                         "note": st.column_config.TextColumn("Notitie"),
-                        "done": st.column_config.CheckboxColumn("Klaar"),
+                        "dnc_reason": st.column_config.TextColumn("Reden (Do not contact)"),
                     })
                 if st.button("Wijzigingen opslaan", type="primary"):
                     fouten = 0
+                    cl = st.session_state["sb_client"]; uid = st.session_state["sb_user"]
                     for idx in edit.index:
                         rid = cdf.loc[idx, "id"]
-                        velden = {"status": edit.loc[idx, "status"],
+                        nd = edit.loc[idx, "next_action_date"]
+                        nd = None if (nd is None or pd.isna(nd)) else str(nd)[:10]
+                        nieuwe_status = edit.loc[idx, "status"]
+                        velden = {"status": nieuwe_status,
+                                  "next_action": edit.loc[idx, "next_action"] or "",
+                                  "next_action_date": nd,
                                   "note": edit.loc[idx, "note"] or "",
-                                  "done": bool(edit.loc[idx, "done"])}
+                                  "dnc_reason": edit.loc[idx, "dnc_reason"] or ""}
                         try:
-                            crm_update(st.session_state["sb_client"], rid, velden)
+                            crm_update(cl, rid, uid, velden)
+                            if nieuwe_status != cdf.loc[idx, "status"]:
+                                crm_add_activity(cl, uid, rid, "Status gewijzigd", f"→ {nieuwe_status}")
                         except Exception:
                             fouten += 1
                     if fouten:
                         st.warning(f"Opgeslagen, maar {fouten} rijen gaven een fout.")
                     else:
                         st.success("Wijzigingen opgeslagen.")
+
+                # ---- Contacthistorie per lead ----
+                st.divider()
+                st.markdown("### Contacthistorie")
+                namen = cdf["company_name"].tolist()
+                if namen:
+                    kz = st.selectbox("Kies een lead", range(len(namen)),
+                                      format_func=lambda i: namen[i], key="hist_sel")
+                    lid = cdf.loc[cdf.index[kz], "id"]
+                    nieuwe_notitie = st.text_input("Notitie toevoegen", key="hist_note")
+                    if st.button("Notitie loggen") and nieuwe_notitie.strip():
+                        crm_add_activity(st.session_state["sb_client"], st.session_state["sb_user"],
+                                         lid, "Notitie", nieuwe_notitie.strip())
+                        st.success("Genoteerd.")
+                        st.rerun()
+                    acts = crm_load_activities(st.session_state["sb_client"],
+                                               st.session_state["sb_user"], lid)
+                    if acts:
+                        for a in acts:
+                            datum = str(a.get("created_at", ""))[:10]
+                            oms = f" — {a['description']}" if a.get("description") else ""
+                            st.markdown(f"- **{datum}**  {a.get('type','')}{oms}")
+                    else:
+                        st.caption("Nog geen activiteiten voor deze lead.")
 
 st.divider()
 st.caption(
