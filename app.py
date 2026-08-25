@@ -89,6 +89,13 @@ def crm_update(client, row_id, user_id, fields):
     # Defensief: filter op id EN user_id (bovenop row-level security in Supabase).
     client.table("leads").update(fields).eq("id", row_id).eq("user_id", user_id).execute()
 
+def crm_delete(client, row_id, user_id):
+    client.table("leads").delete().eq("id", row_id).eq("user_id", user_id).execute()
+
+def crm_delete_all(client, user_id):
+    r = client.table("leads").delete().eq("user_id", user_id).execute()
+    return len(r.data or [])
+
 def crm_add_activity(client, user_id, lead_id, type_, description=""):
     try:
         client.table("activities").insert({
@@ -1336,6 +1343,39 @@ with tab_crm:
                         st.warning(f"Opgeslagen, maar {fouten} rijen gaven een fout.")
                     else:
                         st.success("Wijzigingen opgeslagen.")
+
+                # ---- Verwijderen ----
+                st.divider()
+                st.markdown("### Leads verwijderen")
+                cl = st.session_state["sb_client"]; uid = st.session_state["sb_user"]
+                vd1, vd2 = st.columns(2)
+                with vd1:
+                    weg = st.multiselect(
+                        "Kies leads om te verwijderen",
+                        options=list(cdf.index),
+                        format_func=lambda i: f"{cdf.loc[i,'company_name']} ({cdf.loc[i,'email']})")
+                    if st.button("Verwijder gekozen leads") and weg:
+                        fout = 0
+                        for i in weg:
+                            try:
+                                crm_delete(cl, cdf.loc[i, "id"], uid)
+                            except Exception:
+                                fout += 1
+                        if fout:
+                            st.warning(f"{len(weg)-fout} verwijderd, {fout} met een fout.")
+                        else:
+                            st.success(f"{len(weg)} leads verwijderd.")
+                        st.rerun()
+                with vd2:
+                    st.caption("Alles wissen kan niet ongedaan worden gemaakt.")
+                    bevestig = st.checkbox("Ja, verwijder al mijn leads")
+                    if st.button("🗑️ Alle leads verwijderen", type="secondary") and bevestig:
+                        try:
+                            n = crm_delete_all(cl, uid)
+                            st.success(f"Alle leads verwijderd ({n}).")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Verwijderen mislukt: {e}")
 
                 # ---- Contacthistorie per lead ----
                 st.divider()
