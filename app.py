@@ -420,118 +420,121 @@ FOLLOWUP_3 = ("Beste {aanhef},\n\nLaatste bericht van mijn kant, daarna laat ik 
 
 # Prikkelende onderwerpregels per segment (in plaats van een 'wat als'-vraag).
 SUBJECTS_STD = {
-    "natuurcamping": "Jullie verhalen krijgen te weinig aandacht",
-    "bnb": "Jullie verhalen krijgen te weinig aandacht",
-    "hotel": "Jullie verhalen krijgen te weinig aandacht",
-    "streek": "Jullie producten hebben een verhaal dat de klant nooit hoort",
-    "winkel": "Jullie producten hebben een verhaal dat de klant nooit hoort",
-    "horeca": "Jullie gerechten hebben een verhaal dat de gast nooit hoort",
-    "bloemist": "Het kaartje bij het boeket zegt te weinig",
-    "attractie": "Een bordje dat kinderen niet kunnen lezen",
-    "erfgoed": "Jullie verhalen krijgen te weinig aandacht",
+    "natuurcamping": "Wat als gasten jullie camping ook konden horen?",
+    "bnb": "Wat als gasten jullie plek ook konden horen?",
+    "hotel": "Wat als gasten jullie hotel ook konden horen?",
+    "streek": "Wat als jullie producten iets konden vertellen?",
+    "winkel": "Wat als jullie producten iets konden vertellen?",
+    "horeca": "Wat als jullie gerechten iets konden vertellen?",
+    "bloemist": "Wat als een boeket iets kon zeggen?",
+    "attractie": "Wat als jullie dieren iets konden vertellen?",
+    "erfgoed": "Wat als jullie plek ook te horen was?",
 }
 
-# Idee-gedreven kerntekst per segment (zonder aanhef, zonder links, zonder groet).
+# Kerntekst per segment (zonder aanhef, zonder links, zonder groet).
 STD = {
  "natuurcamping": {"segwoord": "camping", "kern":
-   "Jullie verhalen krijgen te weinig aandacht.\n\n"
-   "Het verhaal achter de plek, de route, de omgeving. Vaak staat het op een bordje waar een gast "
-   "een paar seconden naar kijkt en daarna weer doorloopt.\n\n"
-   "Terwijl juist die verhalen een verblijf persoonlijker en bijzonderder kunnen maken.\n\n"
-   "Wat als gasten jullie verhaal niet hoeven te lezen, maar gewoon kunnen horen? Op het moment "
-   "zelf, in jullie eigen stem.\n\n"
-   "Met VoiceStamp scant een gast een eenvoudige stempel, op de kampeerplek, bij de receptie of aan "
-   "de start van een route, en hoort direct jullie audioboodschap. Geen app, geen account.\n\n"
-   "Een warm welkom bij aankomst. Een tip voor de mooiste wandeling. Of het verhaal achter de plek "
-   "waar ze verblijven.\n\n"
-   "Het is geen extra scherm en geen extra drukte. Juist minder: het vangt vragen af die nu bij de "
-   "receptie terechtkomen en het werkt ook voor kinderen die nog niet lezen."},
+   "Wat als gasten jullie camping niet alleen zien, maar ook kunnen horen?\n\n"
+   "Een welkom bij aankomst. Het verhaal achter de plek. Een persoonlijke tip voor de mooiste "
+   "wandeling.\n\n"
+   "Met VoiceStamp scant een gast een eenvoudige stempel en hoort direct jullie boodschap, op het "
+   "moment en de plek waar die relevant is.\n\n"
+   "Geen app. Geen account. Gewoon luisteren.\n\n"
+   "Een VoiceStamp kan staan op de kampeerplek, bij de receptie of aan het begin van een route. In "
+   "jullie eigen stem.\n\n"
+   "En dat is maar \u00e9\u00e9n voorbeeld. VoiceStamp kan overal op de camping een verhaal, boodschap of "
+   "moment een stem geven.\n\n"
+   "Zo geef je gasten iets mee dat op een bordje vaak verloren gaat, zonder extra drukte voor je "
+   "team."},
  "bnb": {"segwoord": "B&B", "kern":
-   "Jullie verhalen krijgen te weinig aandacht.\n\n"
-   "Het verhaal van het pand, van de plek, van de omgeving. Het staat op de website of op een "
-   "briefje, en verdwijnt zodra een gast de kamer in loopt.\n\n"
-   "Terwijl juist die verhalen een verblijf persoonlijker en bijzonderder maken.\n\n"
-   "Wat als gasten jullie verhaal niet hoeven te lezen, maar gewoon kunnen horen? Op het moment "
-   "zelf, in jullie eigen stem.\n\n"
-   "Met VoiceStamp scant een gast een eenvoudige stempel, op de kamer of bij een bijzonder detail "
-   "van het pand, en hoort direct jullie audioboodschap. Geen app, geen account.\n\n"
-   "Een warm welkom bij aankomst. Het verhaal van het pand. Of een tip voor de omgeving.\n\n"
-   "Het is geen extra drukte, maar juist minder. Het vangt vragen af die anders bij jullie "
-   "terechtkomen, ook op de momenten dat je er zelf even niet bent."},
+   "Wat als gasten jullie plek niet alleen zien, maar ook kunnen horen?\n\n"
+   "Een welkom bij aankomst. Het verhaal van het pand. Een persoonlijke tip voor de omgeving.\n\n"
+   "Met VoiceStamp scant een gast een eenvoudige stempel en hoort direct jullie boodschap, op het "
+   "moment en de plek waar die relevant is.\n\n"
+   "Geen app. Geen account. Gewoon luisteren.\n\n"
+   "Een VoiceStamp kan op de kamer, in de gezamenlijke ruimte of bij een bijzonder detail van het "
+   "pand. In jullie eigen stem.\n\n"
+   "En dat is maar \u00e9\u00e9n voorbeeld. VoiceStamp kan overal in jullie B&B een verhaal, boodschap of "
+   "moment een stem geven.\n\n"
+   "Zo geef je gasten iets mee dat op een briefje vaak verloren gaat, zonder extra drukte voor je "
+   "team."},
  "hotel": {"segwoord": "hotel", "kern":
-   "Jullie verhalen krijgen te weinig aandacht.\n\n"
-   "Het verhaal van het pand, van de plek, van de omgeving. Het staat op de website of op een "
-   "gelamineerd vel op de kamer, en krijgt maar een paar seconden aandacht.\n\n"
-   "Terwijl juist die verhalen een verblijf persoonlijker en bijzonderder maken.\n\n"
-   "Wat als gasten jullie verhaal niet hoeven te lezen, maar gewoon kunnen horen? Op het moment "
-   "zelf, in jullie eigen stem.\n\n"
-   "Met VoiceStamp scant een gast een eenvoudige stempel, op de kamer, in de lobby of in het "
-   "restaurant, en hoort direct jullie audioboodschap. Geen app, geen account.\n\n"
-   "Een warm welkom bij aankomst. Het verhaal van het pand. Of een tip voor de omgeving.\n\n"
-   "Het is geen extra scherm en geen extra drukte. Juist minder: het vangt de vragen af die nu bij "
-   "de receptie terechtkomen."},
+   "Wat als gasten jullie hotel niet alleen zien, maar ook kunnen horen?\n\n"
+   "Een welkom bij aankomst. Het verhaal van het pand. Een tip voor de omgeving.\n\n"
+   "Met VoiceStamp scant een gast een eenvoudige stempel en hoort direct jullie boodschap, op het "
+   "moment en de plek waar die relevant is.\n\n"
+   "Geen app. Geen account. Gewoon luisteren.\n\n"
+   "Een VoiceStamp kan op de kamer, in de lobby of in het restaurant. In jullie eigen stem.\n\n"
+   "En dat is maar \u00e9\u00e9n voorbeeld. VoiceStamp kan overal in jullie hotel een verhaal, boodschap of "
+   "moment een stem geven.\n\n"
+   "Zo geef je gasten iets mee dat op een gelamineerd vel vaak verloren gaat, en vang je meteen "
+   "vragen af die anders bij de receptie komen."},
  "streek": {"segwoord": "zaak", "kern":
-   "Jullie producten hebben een verhaal dat de klant nooit hoort.\n\n"
-   "Waarom een druif, een kaas of een ingredi\u00ebnt gekozen is. Dat vertel je in de winkel of aan "
-   "de proeftafel, maar het gaat niet mee met het product dat iemand koopt.\n\n"
-   "Terwijl juist dat verhaal een product bijzonderder maakt.\n\n"
-   "Wat als het product dat verhaal zelf kon vertellen? Bij de klant thuis, in jullie eigen stem.\n\n"
-   "Met VoiceStamp scant een klant een eenvoudige stempel, op de verpakking of bij een schap, en "
-   "hoort direct jullie audioboodschap. Geen app, geen account.\n\n"
-   "Waarom een product bijzonder is. Hoe je het het beste gebruikt. Of een persoonlijk welkom bij "
-   "een proeverij.\n\n"
-   "Geen extra drukte, gewoon een stem bij het product op het moment dat het telt."},
+   "Wat als jullie producten niet alleen gezien worden, maar ook iets kunnen vertellen?\n\n"
+   "Waarom een druif, een kaas of een ingredi\u00ebnt gekozen is. Hoe iets gemaakt wordt. Een woord "
+   "van de maker zelf.\n\n"
+   "Met VoiceStamp scant een klant een eenvoudige stempel en hoort direct jullie boodschap, op het "
+   "moment en de plek waar die relevant is.\n\n"
+   "Geen app. Geen account. Gewoon luisteren.\n\n"
+   "Een VoiceStamp kan op de verpakking, bij een schap of aan de proeftafel. In jullie eigen stem.\n\n"
+   "En dat is maar \u00e9\u00e9n voorbeeld. VoiceStamp kan bij elk product een verhaal, boodschap of moment "
+   "een stem geven.\n\n"
+   "Zo geef je klanten iets mee dat op een etiket vaak verloren gaat, ook nog thuis aan tafel."},
  "winkel": {"segwoord": "winkel", "kern":
-   "Jullie producten hebben een verhaal dat de klant nooit hoort.\n\n"
-   "Wie het maakte, waarom het bijzonder is. In de winkel vertel je het, maar het gaat niet mee "
-   "naar huis met wat iemand koopt.\n\n"
-   "Terwijl juist dat verhaal een product bijzonderder maakt.\n\n"
-   "Wat als het product dat verhaal zelf kon vertellen? Bij de klant thuis, in de stem van de "
-   "maker.\n\n"
-   "Met VoiceStamp scant een klant een eenvoudige stempel, op het product of de verpakking, en "
-   "hoort direct jullie audioboodschap. Geen app, geen account.\n\n"
-   "Het verhaal van de maker. Hoe je iets het beste gebruikt of onderhoudt. Of een woord van jullie "
-   "zelf.\n\n"
-   "Geen extra drukte, gewoon een stem bij het product op het moment dat het telt."},
+   "Wat als jullie producten niet alleen gezien worden, maar ook iets kunnen vertellen?\n\n"
+   "Wie het maakte. Waarom het bijzonder is. Hoe je het het beste gebruikt.\n\n"
+   "Met VoiceStamp scant een klant een eenvoudige stempel en hoort direct jullie boodschap, op het "
+   "moment en de plek waar die relevant is.\n\n"
+   "Geen app. Geen account. Gewoon luisteren.\n\n"
+   "Een VoiceStamp kan op het product, op de verpakking of bij een schap. In de stem van de maker.\n\n"
+   "En dat is maar \u00e9\u00e9n voorbeeld. VoiceStamp kan bij elk product een verhaal, boodschap of moment "
+   "een stem geven.\n\n"
+   "Zo geef je klanten iets mee dat in de winkel verteld wordt, maar anders niet meegaat naar huis."},
  "horeca": {"segwoord": "zaak", "kern":
-   "Jullie gerechten hebben een verhaal dat de gast nooit hoort.\n\n"
-   "Waarom een gerecht op de kaart staat, waar een product vandaan komt. Op een drukke avond komt "
-   "dat verhaal er niet uit.\n\n"
-   "Terwijl juist dat verhaal een bezoek bijzonderder maakt.\n\n"
-   "Wat als jullie dat verhaal gewoon konden laten horen? Aan tafel, in de stem van de chef.\n\n"
-   "Met VoiceStamp scant een gast een eenvoudige stempel, op de menukaart of op tafel, en hoort "
-   "direct jullie audioboodschap. Geen app, geen account.\n\n"
-   "Een welkom bij binnenkomst. Het verhaal achter een streekgerecht. Of een tip voor een volgende "
-   "keer.\n\n"
-   "Geen extra drukte in de bediening, gewoon een stem op het juiste moment."},
+   "Wat als gasten jullie gerechten niet alleen proeven, maar er ook iets over kunnen horen?\n\n"
+   "Waarom een gerecht op de kaart staat. Waar een product vandaan komt. Een woord van de chef.\n\n"
+   "Met VoiceStamp scant een gast een eenvoudige stempel en hoort direct jullie boodschap, op het "
+   "moment en de plek waar die relevant is.\n\n"
+   "Geen app. Geen account. Gewoon luisteren.\n\n"
+   "Een VoiceStamp kan op de menukaart, op tafel of bij binnenkomst. In jullie eigen stem.\n\n"
+   "En dat is maar \u00e9\u00e9n voorbeeld. VoiceStamp kan overal in jullie zaak een verhaal, boodschap of "
+   "moment een stem geven.\n\n"
+   "Zo geef je gasten iets mee dat op een drukke avond vaak verloren gaat, zonder extra werk voor de "
+   "bediening."},
  "bloemist": {"segwoord": "winkel", "kern":
-   "Een boeket zegt veel, maar het kaartje erbij zegt weinig.\n\n"
-   "Een paar woorden op een klein kaartje. Terwijl juist de boodschap het boeket bijzonder maakt.\n\n"
-   "Wat als de afzender zijn boodschap kon inspreken, in zijn eigen stem?\n\n"
-   "Met VoiceStamp scant de ontvanger een eenvoudige stempel bij het boeket, in plaats van het "
-   "kaartje, en hoort direct de boodschap. Geen app, geen account.\n\n"
-   "Een persoonlijke felicitatie. Een woord van troost. Of gewoon: ik denk aan je.\n\n"
-   "Geen app, geen gedoe. Juist rond Moederdag en Valentijn maakt een stem het verschil."},
+   "Wat als een boeket niet alleen gezien wordt, maar ook iets kan zeggen?\n\n"
+   "Een persoonlijke felicitatie. Een woord van troost. Gewoon: ik denk aan je.\n\n"
+   "Met VoiceStamp scant de ontvanger een eenvoudige stempel en hoort direct de boodschap, op het "
+   "moment dat het telt.\n\n"
+   "Geen app. Geen account. Gewoon luisteren.\n\n"
+   "Een VoiceStamp kan bij het boeket, in plaats van het kleine kaartje. In de eigen stem van de "
+   "afzender.\n\n"
+   "En dat is maar \u00e9\u00e9n voorbeeld. VoiceStamp kan bij elk boeket een boodschap of moment een stem "
+   "geven.\n\n"
+   "Juist rond Moederdag en Valentijn maakt een stem het verschil, zonder extra gedoe voor jullie."},
  "attractie": {"segwoord": "park", "kern":
-   "Jullie dieren en attracties hebben een verhaal dat vaak op een bordje blijft steken.\n\n"
-   "Een bordje dat een paar seconden aandacht krijgt, en dat kinderen nog niet kunnen lezen.\n\n"
-   "Terwijl juist die verhalen een bezoek bijzonderder maken.\n\n"
-   "Wat als een bezoeker dat verhaal gewoon kon horen? Bij het verblijf zelf, verteld door een "
+   "Wat als bezoekers jullie dieren en attracties niet alleen zien, maar er ook iets over kunnen "
+   "horen?\n\n"
+   "Het verhaal van een dier. Een welkom bij binnenkomst. Het programma van die dag.\n\n"
+   "Met VoiceStamp scant een bezoeker een eenvoudige stempel en hoort direct jullie boodschap, op "
+   "het moment en de plek waar die relevant is.\n\n"
+   "Geen app. Geen account. Gewoon luisteren.\n\n"
+   "Een VoiceStamp kan bij een verblijf, langs de route of bij de ingang. Verteld door een "
    "verzorger.\n\n"
-   "Met VoiceStamp scant een bezoeker een eenvoudige stempel, bij een verblijf of langs de route, "
-   "en hoort direct jullie audioboodschap. Geen app, geen account.\n\n"
-   "Het verhaal van een dier. Een welkom bij binnenkomst. Of het programma van die dag.\n\n"
-   "Geen extra drukte, en het werkt ook voor wie nog niet leest."},
+   "En dat is maar \u00e9\u00e9n voorbeeld. VoiceStamp kan overal in jullie park een verhaal, boodschap of "
+   "moment een stem geven.\n\n"
+   "Zo geef je bezoekers iets mee dat op een bordje vaak verloren gaat, en dat ook werkt voor "
+   "kinderen die nog niet lezen."},
  "erfgoed": {"segwoord": "organisatie", "kern":
-   "Jullie verhalen krijgen te weinig aandacht.\n\n"
-   "Het verhaal van een plek of een stuk staat op een bordje dat een bezoeker een paar seconden "
-   "bekijkt en daarna loslaat.\n\n"
-   "Terwijl juist die verhalen een bezoek bijzonderder maken.\n\n"
-   "Wat als een bezoeker dat verhaal kon horen? Op de plek zelf, in de stem van een gids of "
+   "Wat als bezoekers jullie plek niet alleen zien, maar ook kunnen horen?\n\n"
+   "Het verhaal achter een stuk. Een route langs de hoogtepunten. Een welkom bij binnenkomst.\n\n"
+   "Met VoiceStamp scant een bezoeker een eenvoudige stempel en hoort direct jullie boodschap, op "
+   "het moment en de plek waar die relevant is.\n\n"
+   "Geen app. Geen account. Gewoon luisteren.\n\n"
+   "Een VoiceStamp kan bij een object, een monument of langs een route. In de stem van een gids of "
    "conservator.\n\n"
-   "Met VoiceStamp scant een bezoeker een eenvoudige stempel, bij een object, een monument of langs "
-   "een route, en hoort direct jullie audioboodschap. Geen app, geen account.\n\n"
-   "Het verhaal achter een stuk. Een route langs de hoogtepunten. Of een welkom bij binnenkomst.\n\n"
+   "En dat is maar \u00e9\u00e9n voorbeeld. VoiceStamp kan overal in jullie collectie een verhaal, boodschap "
+   "of moment een stem geven.\n\n"
    "Zo maak je jullie verhaal toegankelijk, ook buiten de rondleidingen om."},
 }
 
@@ -740,7 +743,11 @@ def maak_mail(l, brand):
     subject = SUBJECTS_STD.get(seg, SUBJECTS_STD["natuurcamping"])
     if l.get("heeft_app"):
         subject = "Geen tweede app \u2014 juist minder gedoe"
-    aanhef = l.get("_vn") or f"team van {l['naam']}"
+    # Aanhef: 'algemeen' = "Beste team," ; anders "Beste team van <naam>," (of voornaam indien bekend)
+    if brand.get("aanhef_modus") == "algemeen":
+        aanhef = "team"
+    else:
+        aanhef = l.get("_vn") or f"team van {l['naam']}"
     if brand["eigen_mid"].strip():
         try:
             kern = brand["eigen_mid"].format(naam=l["naam"], plaats=l["plaats"] or "jullie omgeving",
@@ -752,10 +759,9 @@ def maak_mail(l, brand):
     kern = kern.replace("VoiceStamp", brand["merk"])
     if l.get("heeft_app"):
         kern += "\n\n" + APP_LINE.replace("VoiceStamp", brand["merk"])
-    segwoord = STD[seg]["segwoord"]
     linksblok = "Benieuwd hoe dat eruitziet? Neem gerust een kijkje:\n" + brand["links"]
     body = (f"Beste {aanhef},\n\n{kern}\n\n{linksblok}\n\n"
-            f"Ik laat het graag zien als je denkt dat dit bij jullie {segwoord} past.\n\n"
+            f"Ik laat het graag zien als je denkt dat {brand['merk']} bij jullie past.\n\n"
             "Met vriendelijke groet,")
     fu2 = FOLLOWUP_2.format(aanhef=aanhef, merk=brand["merk"])
     fu3 = FOLLOWUP_3.format(aanhef=aanhef)
@@ -960,12 +966,16 @@ with st.sidebar:
     up = st.file_uploader("Al-verstuurde lijst (csv/xlsx, optioneel)", type=["csv", "xlsx", "xlsm"])
     with st.expander("Jouw merk & pitch (optioneel)"):
         merk = st.text_input("Productnaam", "VoiceStamp")
+        aanhef_keuze = st.radio(
+            "Aanhef", ["Beste team van [bedrijfsnaam]", "Beste team"], index=0,
+            help="Persoonlijk (met bedrijfsnaam) scoort meestal beter. 'Beste team' is voor "
+                 "iedereen identiek.")
         links_blok = st.text_area("Links-blok in de mail", LINKS, height=110)
         eigen_mid = st.text_area(
             "Eigen pitch (optioneel)", "",
-            help="Vervangt de standaard segmenttekst. Gebruik {naam}, {plaats}, {haak}. "
-                 "Laat leeg voor de ingebouwde teksten. De mail eindigt altijd na 'Met "
-                 "vriendelijke groet,' zodat je eigen handtekening eronder komt.")
+            help="Vervangt de standaard segmenttekst voor de hele campagne. Gebruik {naam}, "
+                 "{plaats}, {haak}. Laat leeg voor de ingebouwde teksten. De mail eindigt altijd na "
+                 "'Met vriendelijke groet,' zodat je eigen handtekening eronder komt.")
     start = st.button("🚀 Start", type="primary", use_container_width=True)
     st.caption("Houd dit tabblad open tijdens het zoeken. Werk per provincie voor een snelle run. "
                "Dezelfde provincie opnieuw ophalen gaat direct (opgeslagen).")
@@ -977,7 +987,8 @@ with st.sidebar:
         elif st.session_state.get("sb_user"):
             st.success(f"Ingelogd als {st.session_state.get('sb_email','')}")
             if st.button("Uitloggen"):
-                for k in ("sb_client", "sb_user", "sb_email"):
+                for k in ("sb_client", "sb_user", "sb_email",
+                          "zoho_user", "zoho_pw", "zoho_host", "zoho_from", "zoho_sig"):
                     st.session_state.pop(k, None)
                 st.rerun()
         else:
@@ -1014,7 +1025,10 @@ with st.sidebar:
                         st.error(f"Registreren mislukt: {e}")
 
     with st.expander("Mailen (Zoho)", expanded=False):
-        if st.session_state.get("zoho_user"):
+        if not st.session_state.get("sb_user"):
+            st.caption("Log eerst in bij **Account / CRM** hierboven. De mailfunctie is alleen "
+                       "beschikbaar als je bent ingelogd.")
+        elif st.session_state.get("zoho_user"):
             st.success(f"Mail actief: {st.session_state['zoho_user']}")
             rest = MAIL_DAG_LIMIET
             if st.session_state.get("sb_user"):
@@ -1051,7 +1065,8 @@ with st.sidebar:
 if start:
     preset = PRESETS[campagne]
     verstuurd = laad_verstuurd(up.getvalue(), up.name) if up else set()
-    brand = {"merk": merk.strip() or "VoiceStamp", "links": links_blok, "eigen_mid": eigen_mid}
+    brand = {"merk": merk.strip() or "VoiceStamp", "links": links_blok, "eigen_mid": eigen_mid,
+             "aanhef_modus": "algemeen" if aanhef_keuze == "Beste team" else "persoonlijk"}
     bar = st.progress(0.0); box = st.empty(); t0 = time.time()
     try:
         leads = draai(preset, None if heel else provincie, heel, scrape, mx_check,
@@ -1110,7 +1125,7 @@ with tab_res:
             with tab1:
                 onderwerp = st.text_input("Onderwerp", l["_subject"], key=f"subj_{keuze}")
                 st.code(l["_body"], language=None)
-                if st.session_state.get("zoho_user"):
+                if st.session_state.get("sb_user") and st.session_state.get("zoho_user"):
                     # dagteller
                     if st.session_state.get("sb_user"):
                         gedaan = crm_sent_today(st.session_state["sb_client"], st.session_state["sb_user"])
@@ -1141,7 +1156,10 @@ with tab_res:
                                         crm_add_activity(cl, uid, lid, "Mail verstuurd", onderwerp)
                             except Exception as e:
                                 st.error(f"Versturen mislukt: {e}")
-                elif crm_beschikbaar() or True:
+                elif not st.session_state.get("sb_user"):
+                    st.caption("Wil je direct vanuit de app mailen? Log links in bij **Account / CRM** "
+                               "en daarna bij **Mailen (Zoho)**.")
+                else:
                     st.caption("Wil je direct vanuit de app mailen? Log links in bij **Mailen (Zoho)**.")
             with tab2:
                 st.code(l.get("_fu2", ""), language=None)
