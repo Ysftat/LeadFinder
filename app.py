@@ -1440,9 +1440,9 @@ with tab_crm:
                                     "plaats": "", "_vn": "", "haak": "", "heeft_app": False,
                                     "email": cdf.loc[mk, "email"]}
                         subj, body, _, _ = maak_mail(lead_obj, brand)
-                        ondw = st.text_input("Onderwerp", subj, key="crm_mail_subj")
+                        ondw = st.text_input("Onderwerp", subj, key=f"crm_mail_subj_{mk}")
                         mtekst = st.text_area("Mailtekst (pas gerust aan voor deze lead)",
-                                              body, height=320, key="crm_mail_body")
+                                              body, height=320, key=f"crm_mail_body_{mk}")
                         gedaan = crm_sent_today(st.session_state["sb_client"], st.session_state["sb_user"])
                         rest = MAIL_DAG_LIMIET - gedaan
                         if st.button(f"✉️ Verstuur via Zoho ({max(rest,0)} over vandaag)", key="crm_send"):
