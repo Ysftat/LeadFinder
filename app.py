@@ -780,6 +780,17 @@ def maak_mail(l, brand):
         aanhef = "team"
     else:
         aanhef = l.get("_vn") or f"team van {l['naam']}"
+    # Volledige-mail-override: vervangt de hele mail (alle segmenten).
+    if brand.get("eigen_body", "").strip():
+        ctx = {"aanhef": aanhef, "naam": l["naam"], "plaats": l["plaats"] or "jullie omgeving",
+               "haak": l.get("haak", ""), "merk": brand["merk"], "links": brand["links"]}
+        try:
+            body = brand["eigen_body"].format(**ctx)
+        except Exception:
+            body = brand["eigen_body"]
+        fu2 = FOLLOWUP_2.format(aanhef=aanhef, merk=brand["merk"])
+        fu3 = FOLLOWUP_3.format(aanhef=aanhef)
+        return subject, body, fu2, fu3
     if brand["eigen_mid"].strip():
         try:
             kern = brand["eigen_mid"].format(naam=l["naam"], plaats=l["plaats"] or "jullie omgeving",
@@ -1005,9 +1016,13 @@ with st.sidebar:
         links_blok = st.text_area("Links-blok in de mail", LINKS, height=110)
         eigen_mid = st.text_area(
             "Eigen pitch (optioneel)", "",
-            help="Vervangt de standaard segmenttekst voor de hele campagne. Gebruik {naam}, "
-                 "{plaats}, {haak}. Laat leeg voor de ingebouwde teksten. De mail eindigt altijd na "
-                 "'Met vriendelijke groet,' zodat je eigen handtekening eronder komt.")
+            help="Vervangt de standaard segmenttekst (het middenstuk) voor de hele campagne. "
+                 "Gebruik {naam}, {plaats}, {haak}. Laat leeg voor de ingebouwde teksten.")
+        eigen_body = st.text_area(
+            "Volledige standaardmail (optioneel)", "", height=200,
+            help="Vervangt de HELE mail (opening + midden + slot) voor alle segmenten. Gebruik "
+                 "{aanhef}, {naam}, {plaats}, {haak}, {merk}, {links}. Laat leeg om de ingebouwde "
+                 "mails per segment te gebruiken. Eindig zelf met 'Met vriendelijke groet,'.")
     start = st.button("🚀 Start", type="primary", use_container_width=True)
     st.caption("Houd dit tabblad open tijdens het zoeken. Werk per provincie voor een snelle run. "
                "Dezelfde provincie opnieuw ophalen gaat direct (opgeslagen).")
@@ -1095,6 +1110,7 @@ with st.sidebar:
                     st.rerun()
 
 brand = {"merk": merk.strip() or "VoiceStamp", "links": links_blok, "eigen_mid": eigen_mid,
+         "eigen_body": eigen_body,
          "aanhef_modus": "algemeen" if aanhef_keuze == "Beste team" else "persoonlijk"}
 
 if start:
@@ -1157,19 +1173,17 @@ with tab_res:
             tab1, tab2, tab3 = st.tabs(["Mail 1", "Opvolgmail 2", "Opvolgmail 3"])
             with tab1:
                 onderwerp = st.text_input("Onderwerp", l["_subject"], key=f"subj_{keuze}")
-                st.code(l["_body"], language=None)
+                mailtekst = st.text_area("Mailtekst (pas gerust aan voor deze lead)",
+                                         l["_body"], height=320, key=f"body_{keuze}")
                 if st.session_state.get("sb_user") and st.session_state.get("zoho_user"):
                     # dagteller
-                    if st.session_state.get("sb_user"):
-                        gedaan = crm_sent_today(st.session_state["sb_client"], st.session_state["sb_user"])
-                    else:
-                        gedaan = st.session_state.get("zoho_sent_today", 0)
+                    gedaan = crm_sent_today(st.session_state["sb_client"], st.session_state["sb_user"])
                     rest = MAIL_DAG_LIMIET - gedaan
                     if st.button(f"✉️ Verstuur via Zoho ({max(rest,0)} over vandaag)", key=f"send_{keuze}"):
                         if rest <= 0:
                             st.warning("Je dagelijkse 10 mails zijn verstuurd. Morgen weer.")
                         else:
-                            body_send = l["_body"] + "\n" + st.session_state.get("zoho_sig", "")
+                            body_send = mailtekst + "\n" + st.session_state.get("zoho_sig", "")
                             try:
                                 zoho_send(st.session_state["zoho_host"], 465,
                                           st.session_state["zoho_user"], st.session_state["zoho_pw"],
@@ -1177,15 +1191,16 @@ with tab_res:
                                           l["email"], onderwerp, body_send)
                                 st.success(f"Mail verstuurd naar {l['email']}.")
                                 st.session_state["zoho_sent_today"] = gedaan + 1
-                                # CRM bijwerken + loggen indien ingelogd
                                 if st.session_state.get("sb_user"):
+                                    from datetime import date as _d
                                     cl = st.session_state["sb_client"]; uid = st.session_state["sb_user"]
                                     lid = crm_lead_id_by_email(cl, uid, l["email"])
                                     if not lid:
                                         crm_save(cl, uid, [l])
                                         lid = crm_lead_id_by_email(cl, uid, l["email"])
                                     if lid:
-                                        crm_update(cl, lid, uid, {"status": "Gemaild"})
+                                        crm_update(cl, lid, uid,
+                                                   {"status": "Gemaild", "last_mailed": _d.today().isoformat()})
                                         crm_add_activity(cl, uid, lid, "Mail verstuurd", onderwerp)
                             except Exception as e:
                                 st.error(f"Versturen mislukt: {e}")
@@ -1296,7 +1311,8 @@ with tab_crm:
                 cdf = pd.DataFrame(data)
                 for kol, leeg in [("note", ""), ("status", "Nieuw"), ("segment", ""),
                                   ("company_name", ""), ("email", ""), ("score", 0),
-                                  ("next_action", ""), ("next_action_date", None), ("dnc_reason", "")]:
+                                  ("next_action", ""), ("next_action_date", None), ("dnc_reason", ""),
+                                  ("last_mailed", None)]:
                     if kol not in cdf.columns:
                         cdf[kol] = leeg
                 cdf["note"] = cdf["note"].fillna("")
@@ -1333,7 +1349,7 @@ with tab_crm:
                 st.caption(f"{len(toon)} van {len(cdf)} leads.")
                 edit = st.data_editor(
                     toon[["company_name", "segment", "email", "score", "status",
-                          "next_action", "next_action_date", "note", "dnc_reason"]],
+                          "next_action", "next_action_date", "last_mailed", "note", "dnc_reason"]],
                     use_container_width=True, height=420, key="crm_editor",
                     column_config={
                         "company_name": st.column_config.TextColumn("Bedrijf", disabled=True),
@@ -1343,6 +1359,7 @@ with tab_crm:
                         "status": st.column_config.SelectboxColumn("Status", options=STATUS_OPTIES),
                         "next_action": st.column_config.TextColumn("Volgende actie"),
                         "next_action_date": st.column_config.DateColumn("Datum volg. actie"),
+                        "last_mailed": st.column_config.DateColumn("Gemaild op", disabled=True),
                         "note": st.column_config.TextColumn("Notitie"),
                         "dnc_reason": st.column_config.TextColumn("Reden (Do not contact)"),
                     })
@@ -1424,21 +1441,24 @@ with tab_crm:
                                     "email": cdf.loc[mk, "email"]}
                         subj, body, _, _ = maak_mail(lead_obj, brand)
                         ondw = st.text_input("Onderwerp", subj, key="crm_mail_subj")
-                        st.code(body, language=None)
+                        mtekst = st.text_area("Mailtekst (pas gerust aan voor deze lead)",
+                                              body, height=320, key="crm_mail_body")
                         gedaan = crm_sent_today(st.session_state["sb_client"], st.session_state["sb_user"])
                         rest = MAIL_DAG_LIMIET - gedaan
                         if st.button(f"✉️ Verstuur via Zoho ({max(rest,0)} over vandaag)", key="crm_send"):
                             if rest <= 0:
                                 st.warning("Je dagelijkse 10 mails zijn verstuurd. Morgen weer.")
                             else:
-                                body_send = body + "\n" + st.session_state.get("zoho_sig", "")
+                                body_send = mtekst + "\n" + st.session_state.get("zoho_sig", "")
                                 try:
+                                    from datetime import date as _d
                                     zoho_send(st.session_state["zoho_host"], 465,
                                               st.session_state["zoho_user"], st.session_state["zoho_pw"],
                                               st.session_state.get("zoho_from", st.session_state["zoho_user"]),
                                               lead_obj["email"], ondw, body_send)
                                     cl = st.session_state["sb_client"]; uid = st.session_state["sb_user"]
-                                    crm_update(cl, cdf.loc[mk, "id"], uid, {"status": "Gemaild"})
+                                    crm_update(cl, cdf.loc[mk, "id"], uid,
+                                               {"status": "Gemaild", "last_mailed": _d.today().isoformat()})
                                     crm_add_activity(cl, uid, cdf.loc[mk, "id"], "Mail verstuurd", ondw)
                                     st.success(f"Mail verstuurd naar {lead_obj['email']}.")
                                     st.rerun()
