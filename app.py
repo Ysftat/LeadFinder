@@ -208,7 +208,10 @@ def crm_import_uit_bytes(client, user_id, data_bytes, filename):
 
 # ------------------------------------------------------------------ constants
 OVERPASS = ["https://overpass-api.de/api/interpreter",
-            "https://overpass.kumi.systems/api/interpreter"]
+            "https://overpass.kumi.systems/api/interpreter",
+            "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+            "https://overpass.openstreetmap.ru/api/interpreter",
+            "https://overpass.private.coffee/api/interpreter"]
 UA = "VoiceStamp-LeadFinder/streamlit (zakelijk gebruik; contact via voicestamp.nl)"
 EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
 BAD = ("example.", "sentry.", "wixpress.", ".png", ".jpg", ".gif", "@2x",
@@ -605,14 +608,30 @@ def q_build(area, keys, whole):
 @st.cache_data(ttl=7 * 24 * 3600, show_spinner=False)
 def osm_cached(area, keys_items, whole):
     keys = {k: list(v) for k, v in keys_items}
-    q = q_build(area, keys, whole); err = None
-    for ep in OVERPASS:
-        try:
-            r = requests.post(ep, data={"data": q}, headers={"User-Agent": UA}, timeout=200)
-            r.raise_for_status(); return r.json().get("elements", [])
-        except Exception as e:
-            err = e; time.sleep(2)
-    raise RuntimeError(f"Overpass niet bereikbaar: {err}")
+    q = q_build(area, keys, whole)
+    laatste = None
+    # 2 rondes over alle servers, met een korte pauze, zodat tijdelijke 500/502-fouten worden opgevangen
+    for ronde in range(2):
+        for ep in OVERPASS:
+            try:
+                r = requests.post(ep, data={"data": q},
+                                  headers={"User-Agent": UA}, timeout=180)
+                if r.status_code in (429, 500, 502, 503, 504):
+                    laatste = f"{r.status_code} van {urlparse(ep).netloc}"
+                    time.sleep(1.5)
+                    continue
+                r.raise_for_status()
+                els = r.json().get("elements", [])
+                return els
+            except Exception as e:
+                laatste = f"{type(e).__name__} bij {urlparse(ep).netloc}"
+                time.sleep(1.0)
+                continue
+        time.sleep(2)
+    raise RuntimeError(
+        "De OpenStreetMap-servers reageren nu niet (dit ligt aan hun kant, niet aan de app). "
+        f"Laatste melding: {laatste}. Probeer het over een paar minuten opnieuw, of kies "
+        "eventueel een kleinere provincie.")
 
 def parse(els, typemap):
     out = []
