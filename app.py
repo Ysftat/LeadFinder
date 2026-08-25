@@ -134,17 +134,34 @@ def crm_sent_today(client, user_id):
         return 0
 
 # ---------------------------------------------------------------- Zoho-mail (SMTP)
-import smtplib, ssl
+import smtplib, ssl, html as _html
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from email.utils import formataddr
 
 MAIL_DAG_LIMIET = 10
 
+_URL_RE = re.compile(r"(https?://[^\s<>()]+|www\.[^\s<>()]+)")
+
+def _naar_html(tekst):
+    """Zet platte tekst om naar simpele, nette HTML met klikbare links (sober = beter voor spam)."""
+    veilig = _html.escape(tekst)
+    def _link(m):
+        u = m.group(0)
+        href = u if u.startswith("http") else "https://" + u
+        return f'<a href="{href}">{u}</a>'
+    veilig = _URL_RE.sub(_link, veilig)
+    veilig = veilig.replace("\n", "<br>")
+    return (f'<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;'
+            f'line-height:1.5;color:#222;">{veilig}</div>')
+
 def zoho_send(host, port, user, app_pw, from_name, to_addr, subject, body):
-    msg = MIMEText(body, "plain", "utf-8")
+    msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = formataddr((from_name, user))
     msg["To"] = to_addr
+    msg.attach(MIMEText(body, "plain", "utf-8"))
+    msg.attach(MIMEText(_naar_html(body), "html", "utf-8"))
     ctx = ssl.create_default_context()
     with smtplib.SMTP_SSL(host, int(port), context=ctx, timeout=20) as s:
         s.login(user, app_pw)
@@ -362,10 +379,10 @@ for _p in PRESETS.values():
     for _osmval, (_label, _seg) in _p["typemap"].items():
         LABEL_TO_SEG[_label] = _seg
 
-LINKS = ("\u2022 Website: www.voicestamp.nl\n"
-         "\u2022 Hoe het werkt: www.voicestamp.nl/how-it-works\n"
-         "\u2022 Instagram: @voicestamp.nl\n"
-         "\u2022 LinkedIn: VoiceStamp")
+LINKS = ("\u2022 Website: https://www.voicestamp.nl\n"
+         "\u2022 Hoe het werkt: https://www.voicestamp.nl/how-it-works\n"
+         "\u2022 Instagram: https://www.instagram.com/voicestamp.nl\n"
+         "\u2022 LinkedIn: https://www.linkedin.com/company/voicestamp")
 SIG = ("Met vriendelijke groet,\nYusuf Tatlicioglu\n0646756497\n\n"
        "Founder VoiceStamp\nhttps://www.voicestamp.nl/")
 APP_LINE = ("Ik zag dat jullie al met een app werken, dus voor de duidelijkheid: VoiceStamp is "
@@ -1097,7 +1114,8 @@ with st.sidebar:
             zsig = st.text_area("Handtekening (onder de mail)",
                                 "Yusuf Tatlicioglu\n0646756497\n\nFounder VoiceStamp\nhttps://www.voicestamp.nl/",
                                 key="zoho_sig_in", height=90,
-                                help="Wordt onder 'Met vriendelijke groet,' geplaatst bij app-verzending.")
+                                help="Komt onder 'Met vriendelijke groet,'. Volledige webadressen "
+                                     "(https://... of www...) worden automatisch klikbaar in de mail.")
             if st.button("Mail inloggen"):
                 if not (zu.strip() and zp):
                     st.error("Vul je Zoho-e-mail en app-wachtwoord in.")
