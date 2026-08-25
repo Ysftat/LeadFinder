@@ -356,6 +356,12 @@ PRESETS = {
     },
 }
 
+# Omgekeerde koppeling: opgeslagen type-label (bijv. "Camping") terug naar segment ("natuurcamping").
+LABEL_TO_SEG = {}
+for _p in PRESETS.values():
+    for _osmval, (_label, _seg) in _p["typemap"].items():
+        LABEL_TO_SEG[_label] = _seg
+
 LINKS = ("\u2022 Website: www.voicestamp.nl\n"
          "\u2022 Hoe het werkt: www.voicestamp.nl/how-it-works\n"
          "\u2022 Instagram: @voicestamp.nl\n"
@@ -1088,11 +1094,12 @@ with st.sidebar:
                     st.session_state["zoho_sig"] = zsig
                     st.rerun()
 
+brand = {"merk": merk.strip() or "VoiceStamp", "links": links_blok, "eigen_mid": eigen_mid,
+         "aanhef_modus": "algemeen" if aanhef_keuze == "Beste team" else "persoonlijk"}
+
 if start:
     preset = PRESETS[campagne]
     verstuurd = laad_verstuurd(up.getvalue(), up.name) if up else set()
-    brand = {"merk": merk.strip() or "VoiceStamp", "links": links_blok, "eigen_mid": eigen_mid,
-             "aanhef_modus": "algemeen" if aanhef_keuze == "Beste team" else "persoonlijk"}
     bar = st.progress(0.0); box = st.empty(); t0 = time.time()
     try:
         leads = draai(preset, None if heel else provincie, heel, scrape, mx_check,
@@ -1395,6 +1402,48 @@ with tab_crm:
                             st.rerun()
                         except Exception as e:
                             st.error(f"Verwijderen mislukt: {e}")
+
+                # ---- Mail versturen vanuit CRM (Zoho) ----
+                st.divider()
+                st.markdown("### Mail versturen")
+                if not st.session_state.get("zoho_user"):
+                    st.caption("Log links in bij **Mailen (Zoho)** om vanuit je CRM te mailen.")
+                else:
+                    mlijst = cdf[cdf["email"].fillna("") != ""]
+                    if not len(mlijst):
+                        st.caption("Geen leads met e-mail in je CRM.")
+                    else:
+                        idxs = list(mlijst.index)
+                        mk = st.selectbox(
+                            "Kies een lead om te mailen", idxs,
+                            format_func=lambda i: f"{cdf.loc[i,'company_name']} ({cdf.loc[i,'email']})",
+                            key="crm_mail_sel")
+                        seg = LABEL_TO_SEG.get(str(cdf.loc[mk, "segment"]), "natuurcamping")
+                        lead_obj = {"seg": seg, "naam": cdf.loc[mk, "company_name"] or "",
+                                    "plaats": "", "_vn": "", "haak": "", "heeft_app": False,
+                                    "email": cdf.loc[mk, "email"]}
+                        subj, body, _, _ = maak_mail(lead_obj, brand)
+                        ondw = st.text_input("Onderwerp", subj, key="crm_mail_subj")
+                        st.code(body, language=None)
+                        gedaan = crm_sent_today(st.session_state["sb_client"], st.session_state["sb_user"])
+                        rest = MAIL_DAG_LIMIET - gedaan
+                        if st.button(f"✉️ Verstuur via Zoho ({max(rest,0)} over vandaag)", key="crm_send"):
+                            if rest <= 0:
+                                st.warning("Je dagelijkse 10 mails zijn verstuurd. Morgen weer.")
+                            else:
+                                body_send = body + "\n" + st.session_state.get("zoho_sig", "")
+                                try:
+                                    zoho_send(st.session_state["zoho_host"], 465,
+                                              st.session_state["zoho_user"], st.session_state["zoho_pw"],
+                                              st.session_state.get("zoho_from", st.session_state["zoho_user"]),
+                                              lead_obj["email"], ondw, body_send)
+                                    cl = st.session_state["sb_client"]; uid = st.session_state["sb_user"]
+                                    crm_update(cl, cdf.loc[mk, "id"], uid, {"status": "Gemaild"})
+                                    crm_add_activity(cl, uid, cdf.loc[mk, "id"], "Mail verstuurd", ondw)
+                                    st.success(f"Mail verstuurd naar {lead_obj['email']}.")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Versturen mislukt: {e}")
 
                 # ---- Contacthistorie per lead ----
                 st.divider()
