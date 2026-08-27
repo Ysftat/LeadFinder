@@ -1559,6 +1559,19 @@ with tab_upload:
             else:
                 dfu = pd.read_csv(up_hr, sep=None, engine="python")
             dfu.columns = [str(c).strip() for c in dfu.columns]
+            # Reparatie: alles in 1 kolom geplakt met ; of tab? Splits het alsnog netjes uit.
+            if len(dfu.columns) == 1:
+                enige = dfu.columns[0]
+                for sep in (";", "\t", ","):
+                    if sep in str(enige):
+                        nieuwe_kol = [c.strip() for c in str(enige).split(sep)]
+                        gesplitst = dfu[enige].astype(str).str.split(sep, expand=True)
+                        if gesplitst.shape[1] == len(nieuwe_kol):
+                            gesplitst.columns = nieuwe_kol
+                            dfu = gesplitst
+                            st.info(f"Bestand stond in \u00e9\u00e9n kolom; automatisch uitgesplitst naar "
+                                    f"{len(nieuwe_kol)} kolommen.")
+                        break
         except Exception as e:
             dfu = None
             st.error(f"Kon het bestand niet lezen: {e}")
