@@ -451,6 +451,34 @@ FOLLOWUP_3 = ("Beste {aanhef},\n\nLaatste bericht van mijn kant, daarna laat ik 
               "ooit willen dat jullie verhaal ook echt te h\u00f3ren is op de plek zelf, dan weet je me "
               "te vinden.\n\nMet vriendelijke groet,")
 
+# ---------------------------------------------------------------- HR / onboarding
+HR_SUBJECT = "Nieuwe medewerkers sneller op weg, zonder extra app"
+HR_KERN = (
+    "Wat als een nieuwe medewerker de belangrijkste info niet hoeft te lezen, maar gewoon kan "
+    "horen?\n\n"
+    "Een welkom van het team. Een veiligheidsinstructie bij de machine. Hoe iets op de werkvloer "
+    "werkt, precies op de plek waar het nodig is.\n\n"
+    "Met VoiceStamp scant iemand een eenvoudige stempel en hoort direct de boodschap. Geen app, "
+    "geen account, geen inlog.\n\n"
+    "Geen app. Geen account. Gewoon luisteren.\n\n"
+    "Een VoiceStamp kan bij een machine, in de kantine of op een introductieplek. In jullie eigen "
+    "stem, of die van een collega.\n\n"
+    "Juist bij {invalshoek_zin} scheelt dat tijd en herhaling: de uitleg staat klaar, telkens "
+    "hetzelfde, ook als het druk is.")
+
+def maak_hr_mail(naam, functie, invalshoek, brand, links):
+    functie = (functie or "").strip()
+    aanhef = functie if functie else "team"
+    inval = (invalshoek or "").strip().rstrip(".")
+    inval_zin = inval[0].lower() + inval[1:] if inval else "het inwerken van nieuwe mensen"
+    kern = HR_KERN.format(invalshoek_zin=inval_zin).replace("VoiceStamp", brand["merk"])
+    linksblok = "Benieuwd hoe dat eruitziet? Neem gerust een kijkje:\n" + links
+    body = (f"Beste {aanhef},\n\n{kern}\n\n{linksblok}\n\n"
+            f"Ik laat het graag zien als je denkt dat {brand['merk']} bij {naam} past.\n\n"
+            "Met vriendelijke groet,")
+    return HR_SUBJECT, body
+
+
 # Prikkelende onderwerpregels per segment (in plaats van een 'wat als'-vraag).
 SUBJECTS_STD = {
     "natuurcamping": "Wat als gasten jullie camping ook konden horen?",
@@ -1144,7 +1172,8 @@ if start:
     except Exception as e:
         box.error(f"Er ging iets mis: {e}")
 
-tab_res, tab_crm = st.tabs(["📋 Resultaten & mails", "📇 Mijn CRM"])
+tab_res, tab_crm, tab_upload = st.tabs(
+    ["📋 Resultaten & mails", "📇 Mijn CRM", "📄 Bestand uploaden (HR)"])
 
 with tab_res:
     if st.session_state.get("leads"):
@@ -1506,6 +1535,136 @@ with tab_crm:
                             st.markdown(f"- **{datum}**  {a.get('type','')}{oms}")
                     else:
                         st.caption("Nog geen activiteiten voor deze lead.")
+
+with tab_upload:
+    st.header("Bestand uploaden (HR / onboarding)")
+    st.caption("Voor je eigen lijst bedrijven (bijv. HR-leads). De mail gebruikt een "
+               "onboarding-invalshoek, los van de toeristische mails.")
+    try:
+        from leadfinder_upload import enrich_row
+        _UPLOAD_OK = True
+    except Exception as _e:
+        _UPLOAD_OK = False
+        st.warning("De verrijkingsmodule (leadfinder_upload.py) is niet geladen. Upload werkt, "
+                   "maar e-mails van websites halen kan uitstaan. Detail: " + str(_e))
+
+    up_hr = st.file_uploader("CSV of Excel", type=["csv", "xlsx", "xls"], key="hr_upload")
+    if up_hr is None:
+        st.info("Upload een bestand met minstens een kolom bedrijfsnaam. Website, functie en "
+                "invalshoek zijn optioneel maar maken de mail beter.")
+    else:
+        try:
+            if up_hr.name.lower().endswith((".xlsx", ".xls")):
+                dfu = pd.read_excel(up_hr)
+            else:
+                dfu = pd.read_csv(up_hr, sep=None, engine="python")
+            dfu.columns = [str(c).strip() for c in dfu.columns]
+        except Exception as e:
+            dfu = None
+            st.error(f"Kon het bestand niet lezen: {e}")
+
+        if dfu is not None and len(dfu):
+            st.write(f"**{len(dfu)} rijen** ingelezen.")
+            st.dataframe(dfu.head(8), use_container_width=True)
+            cols = list(dfu.columns)
+            geen = "— geen —"
+            def _gok(keys, standaard=0):
+                for i, c in enumerate(cols):
+                    if any(k in c.lower() for k in keys):
+                        return i
+                return standaard
+            c1, c2, c3 = st.columns(3)
+            k_naam = c1.selectbox("Bedrijfsnaam", cols, index=_gok(("bedrijf", "naam", "company")))
+            k_web = c2.selectbox("Website (optioneel)", [geen] + cols,
+                                 index=1 + _gok(("website", "url", "site", "web")) if any(
+                                     k in " ".join(cols).lower() for k in ("website", "url", "site")) else 0)
+            k_func = c3.selectbox("Functie / aanhef (optioneel)", [geen] + cols,
+                                  index=1 + _gok(("functie", "doelfunctie", "rol", "title")) if any(
+                                      k in " ".join(cols).lower() for k in ("functie", "rol", "title")) else 0)
+            k_mail = c1.selectbox("Bestaand e-mailadres (optioneel)", [geen] + cols,
+                                  index=1 + _gok(("mail", "email")) if any(
+                                      k in " ".join(cols).lower() for k in ("mail", "email")) else 0)
+            k_inval = c2.selectbox("Invalshoek (optioneel)", [geen] + cols,
+                                   index=1 + _gok(("invalshoek", "hoek", "reden")) if any(
+                                       k in " ".join(cols).lower() for k in ("invalshoek", "hoek")) else 0)
+
+            verrijk = st.checkbox("E-mails van de websites proberen op te halen (traag, werkt "
+                                  "vaak niet in de cloud)", value=False,
+                                  disabled=not _UPLOAD_OK)
+            if st.button("Mails opbouwen", type="primary"):
+                rijen = dfu.to_dict("records")
+                uit = []
+                prog = st.progress(0.0)
+                sess = requests.Session()
+                robots = {}
+                for idx, rij in enumerate(rijen):
+                    naam = str(rij.get(k_naam, "") or "").strip()
+                    website = "" if k_web == geen else str(rij.get(k_web, "") or "").strip()
+                    functie = "" if k_func == geen else str(rij.get(k_func, "") or "").strip()
+                    inval = "" if k_inval == geen else str(rij.get(k_inval, "") or "").strip()
+                    email = "" if k_mail == geen else str(rij.get(k_mail, "") or "").strip()
+                    if not email and verrijk and _UPLOAD_OK and website:
+                        try:
+                            r = enrich_row(website, "", "outreach@voicestamp.nl", False, True, sess, robots)
+                            email = r.email or ""
+                        except Exception:
+                            email = ""
+                    if not email and website:
+                        dom = website.replace("https://", "").replace("http://", "").strip("/").split("/")[0]
+                        dom = dom[4:] if dom.startswith("www.") else dom
+                        email = f"info@{dom}" if dom else ""
+                    subj, body = maak_hr_mail(naam, functie, inval, brand, links_blok)
+                    uit.append({"Bedrijf": naam, "Functie": functie, "E-mail": email,
+                                "Website": website, "Onderwerp": subj, "Mail": body})
+                    prog.progress((idx + 1) / len(rijen))
+                st.session_state["hr_uit"] = uit
+                st.success(f"{len(uit)} mails opgebouwd.")
+
+            uit = st.session_state.get("hr_uit")
+            if uit:
+                st.subheader("Resultaat")
+                st.dataframe(pd.DataFrame([{k: v for k, v in u.items() if k != "Mail"} for u in uit]),
+                             use_container_width=True, height=320, hide_index=True)
+                # download
+                import io as _io
+                wb = Workbook(); ws = wb.active; ws.title = "HR-leads"
+                kolommen = ["Bedrijf", "Functie", "E-mail", "Website", "Onderwerp", "Mail"]
+                ws.append(kolommen)
+                for u in uit:
+                    ws.append([u.get(k, "") for k in kolommen])
+                buf = _io.BytesIO(); wb.save(buf)
+                st.download_button("⬇︎ Download Excel", buf.getvalue(),
+                                   file_name="hr_leads.xlsx",
+                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                # per-lead bekijken + mailen
+                st.subheader("Mail per lead")
+                mail_met = [u for u in uit if u["E-mail"]]
+                if mail_met:
+                    ki = st.selectbox("Kies een lead", range(len(mail_met)),
+                                      format_func=lambda i: f"{mail_met[i]['Bedrijf']} ({mail_met[i]['E-mail']})",
+                                      key="hr_pick")
+                    u = mail_met[ki]
+                    ond = st.text_input("Onderwerp", u["Onderwerp"], key=f"hr_subj_{ki}")
+                    txt = st.text_area("Mailtekst", u["Mail"], height=320, key=f"hr_body_{ki}")
+                    if st.session_state.get("sb_user") and st.session_state.get("zoho_user"):
+                        gedaan = crm_sent_today(st.session_state["sb_client"], st.session_state["sb_user"])
+                        rest = MAIL_DAG_LIMIET - gedaan
+                        if st.button(f"✉️ Verstuur via Zoho ({max(rest,0)} over vandaag)", key="hr_send"):
+                            if rest <= 0:
+                                st.warning("Je dagelijkse 10 mails zijn verstuurd. Morgen weer.")
+                            else:
+                                body_send = txt + "\n" + st.session_state.get("zoho_sig", "")
+                                try:
+                                    zoho_send(st.session_state["zoho_host"], 465,
+                                              st.session_state["zoho_user"], st.session_state["zoho_pw"],
+                                              st.session_state.get("zoho_from", st.session_state["zoho_user"]),
+                                              u["E-mail"], ond, body_send)
+                                    st.success(f"Mail verstuurd naar {u['E-mail']}.")
+                                except Exception as e:
+                                    st.error(f"Versturen mislukt: {e}")
+                    else:
+                        st.caption("Log in bij **Account / CRM** en **Mailen (Zoho)** om direct te "
+                                   "versturen. Anders kun je de mail kopiëren of downloaden.")
 
 st.divider()
 st.caption(
