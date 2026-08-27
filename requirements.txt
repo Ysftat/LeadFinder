@@ -4,3 +4,5 @@ dnspython
 openpyxl
 pandas
 supabase
+beautifulsoup4
+lxml
