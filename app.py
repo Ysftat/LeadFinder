@@ -139,7 +139,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.utils import formataddr
 
-MAIL_DAG_LIMIET = 10
+MAIL_DAG_LIMIET = 15
 
 _URL_RE = re.compile(r"(https?://[^\s<>()]+|www\.[^\s<>()]+)")
 
@@ -1133,7 +1133,7 @@ with st.sidebar:
                     st.session_state.pop(k, None)
                 st.rerun()
         else:
-            st.caption("Log in om rechtstreeks vanuit de app te mailen (max 10 per dag).")
+            st.caption("Log in om rechtstreeks vanuit de app te mailen (max 15 per dag).")
             zu = st.text_input("Zoho e-mail", key="zoho_email_in")
             zp = st.text_input("App-wachtwoord", type="password", key="zoho_pw_in",
                                help="Maak in Zoho een app-specifiek wachtwoord aan (niet je gewone wachtwoord).")
@@ -1228,7 +1228,7 @@ with tab_res:
                     rest = MAIL_DAG_LIMIET - gedaan
                     if st.button(f"✉️ Verstuur via Zoho ({max(rest,0)} over vandaag)", key=f"send_{keuze}"):
                         if rest <= 0:
-                            st.warning("Je dagelijkse 10 mails zijn verstuurd. Morgen weer.")
+                            st.warning("Je dagelijkse 15 mails zijn verstuurd. Morgen weer.")
                         else:
                             body_send = mailtekst + "\n" + st.session_state.get("zoho_sig", "")
                             try:
@@ -1494,7 +1494,7 @@ with tab_crm:
                         rest = MAIL_DAG_LIMIET - gedaan
                         if st.button(f"✉️ Verstuur via Zoho ({max(rest,0)} over vandaag)", key="crm_send"):
                             if rest <= 0:
-                                st.warning("Je dagelijkse 10 mails zijn verstuurd. Morgen weer.")
+                                st.warning("Je dagelijkse 15 mails zijn verstuurd. Morgen weer.")
                             else:
                                 body_send = mtekst + "\n" + st.session_state.get("zoho_sig", "")
                                 try:
@@ -1664,7 +1664,7 @@ with tab_upload:
                         rest = MAIL_DAG_LIMIET - gedaan
                         if st.button(f"✉️ Verstuur via Zoho ({max(rest,0)} over vandaag)", key="hr_send"):
                             if rest <= 0:
-                                st.warning("Je dagelijkse 10 mails zijn verstuurd. Morgen weer.")
+                                st.warning("Je dagelijkse 15 mails zijn verstuurd. Morgen weer.")
                             else:
                                 body_send = txt + "\n" + st.session_state.get("zoho_sig", "")
                                 try:
