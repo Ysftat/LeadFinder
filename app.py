@@ -1202,26 +1202,76 @@ def draai(preset, area, whole, scrape, mx_check, dedupe_dom, n_per_dag, max_site
 # ------------------------------------------------------------------ UI
 st.set_page_config(page_title="VoiceStamp Lead Finder", page_icon="🎙️", layout="wide")
 
-# ---- Huisstijl (thema-veilig: vecht niet tegen light/dark mode) ----
-ACCENT = "#2E5D4B"   # VoiceStamp-groen; ook in .streamlit/config.toml zetten
+# ---- Huisstijl: de donkere VoiceStamp-look (kleuren en vormen uit de VoiceStamp-app) ----
+VS = {"bg": "#07060b", "card": "rgba(20,16,32,0.9)", "line": "rgba(255,255,255,0.08)",
+      "amber": "#FFB547", "on_amber": "#1b1206", "lilac": "#c4b5fd", "purple": "#7c3aed",
+      "soft": "#8b84a3", "body": "#cfc9de"}
 st.markdown(f"""
 <style>
-  .vs-header {{ display:flex; align-items:center; gap:14px; margin: 2px 0 6px 0; }}
-  .vs-logo {{ width:46px; height:46px; border-radius:12px; background:{ACCENT}; color:#fff;
-             display:flex; align-items:center; justify-content:center; font-size:24px; flex:0 0 auto; }}
-  .vs-title {{ font-size:30px; font-weight:800; line-height:1.05; }}
-  .vs-sub {{ opacity:0.7; margin-top:3px; font-size:14px; }}
-  .stButton>button {{ border-radius:10px; font-weight:600; }}
-  .stTabs [data-baseweb="tab-list"] {{ gap:4px; }}
-  .stTabs [data-baseweb="tab"] {{ border-radius:10px 10px 0 0; padding:8px 16px; }}
-  .vs-step {{ padding:14px 16px; border:1px solid rgba(128,128,128,0.25); border-radius:14px;
-             height:100%; }}
-  .vs-step b {{ color:{ACCENT}; }}
+  @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+
+  /* lettertype: alleen op tekstelementen, zodat de pijltjes en icoontjes heel blijven */
+  .stApp, .stApp p, .stApp li, .stApp label, .stApp h1, .stApp h2, .stApp h3, .stApp h4,
+  .stApp button, .stApp input, .stApp textarea, .stApp [data-baseweb="select"] {{
+      font-family: 'Manrope', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  }}
+  .stApp {{ background: radial-gradient(900px 480px at 0% -8%, rgba(124,58,237,0.20), transparent 60%), {VS['bg']}; }}
+  h1, h2, h3, h4 {{ font-weight: 800 !important; letter-spacing: -0.01em; }}
+  hr {{ border-color: {VS['line']} !important; }}
+
+  /* kop */
+  .vs-hero {{ display:flex; align-items:center; gap:16px; padding:18px 20px; border-radius:20px;
+             border:1px solid {VS['line']}; margin: 2px 0 6px 0;
+             background: radial-gradient(120% 140% at 0% 0%, rgba(124,58,237,0.55), rgba(124,58,237,0.12) 55%, rgba(20,16,32,0.9)); }}
+  .vs-logo {{ width:50px; height:50px; border-radius:15px; background:{VS['amber']}; flex:0 0 auto;
+             display:flex; align-items:center; justify-content:center; }}
+  .vs-title {{ font-size:28px; font-weight:800; line-height:1.08; color:#fff; }}
+  .vs-sub {{ color:{VS['body']}; margin-top:4px; font-size:14px; }}
+
+  /* knoppen: amber met donkere tekst, rest met dunne rand */
+  .stButton > button, .stDownloadButton > button, .stFormSubmitButton > button {{
+      border-radius:12px; font-weight:700; border:1px solid rgba(255,255,255,0.14); }}
+  .stButton > button[kind="primary"], .stDownloadButton > button[kind="primary"],
+  button[data-testid="stBaseButton-primary"], button[data-testid="stBaseButton-primaryFormSubmit"] {{
+      background:{VS['amber']}; border-color:{VS['amber']}; color:{VS['on_amber']}; }}
+  .stButton > button[kind="primary"] p, button[data-testid="stBaseButton-primary"] p,
+  .stDownloadButton > button[kind="primary"] p {{ color:{VS['on_amber']} !important; font-weight:800; }}
+  .stButton > button[kind="primary"]:hover, button[data-testid="stBaseButton-primary"]:hover {{
+      filter:brightness(1.07); background:{VS['amber']}; border-color:{VS['amber']}; color:{VS['on_amber']}; }}
+  .stButton > button:disabled {{ opacity:0.45; }}
+
+  /* tabbladen als pillen, het actieve tabblad in amber (werkt voor oude en nieuwe Streamlit) */
+  [role="tablist"] {{ gap:8px; border-bottom:none !important; box-shadow:none !important; flex-wrap:wrap; }}
+  [role="tab"] {{ border-radius:999px !important; padding:8px 16px !important; height:auto !important;
+        border:1px solid rgba(255,255,255,0.12) !important; background:transparent !important; }}
+  [role="tab"][aria-selected="true"] {{ background:{VS['amber']} !important; border-color:{VS['amber']} !important; }}
+  [role="tab"][aria-selected="true"] p, [role="tab"][aria-selected="true"] div,
+  [role="tab"][aria-selected="true"] span {{ color:{VS['on_amber']} !important; font-weight:800; }}
+  [role="tab"] p {{ margin:0; }}
+  [role="tablist"] [data-baseweb="tab-highlight"], [role="tablist"] [data-baseweb="tab-border"],
+  [data-baseweb="tab-highlight"], [data-baseweb="tab-border"], .react-aria-SelectionIndicator {{ display:none !important; }}
+
+  /* kaarten */
+  [data-testid="stMetric"] {{ background:{VS['card']}; border:1px solid {VS['line']}; border-radius:20px; padding:14px 16px; }}
+  [data-testid="stMetricLabel"] p {{ color:{VS['soft']}; font-size:12.5px; }}
+  [data-testid="stMetricValue"] {{ font-weight:800; }}
+  [data-testid="stExpander"] {{ background:{VS['card']}; border:1px solid {VS['line']}; border-radius:16px; }}
+  [data-testid="stAlert"] {{ border-radius:16px; }}
+  [data-testid="stSidebar"] {{ border-right:1px solid {VS['line']}; }}
+  [data-baseweb="input"], [data-baseweb="textarea"], [data-baseweb="select"] > div {{ border-radius:12px; }}
+  .vs-step {{ padding:16px 18px; background:{VS['card']}; border:1px solid {VS['line']}; border-radius:20px; height:100%; color:{VS['body']}; }}
+  .vs-step b {{ color:{VS['amber']}; font-size:15px; }}
 </style>
 """, unsafe_allow_html=True)
 
+_LOGO = ('<svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">'
+         '<rect x="3"  y="12" width="3.6" height="6"  rx="1.8" fill="#1b1206"/>'
+         '<rect x="8.6" y="7"  width="3.6" height="16" rx="1.8" fill="#1b1206"/>'
+         '<rect x="14.2" y="3" width="3.6" height="24" rx="1.8" fill="#1b1206"/>'
+         '<rect x="19.8" y="8" width="3.6" height="14" rx="1.8" fill="#1b1206"/>'
+         '<rect x="25.4" y="12" width="3.6" height="6" rx="1.8" fill="#1b1206"/></svg>')
 st.markdown(
-    '<div class="vs-header"><div class="vs-logo">🎙️</div>'
+    f'<div class="vs-hero"><div class="vs-logo">{_LOGO}</div>'
     '<div><div class="vs-title">VoiceStamp Lead Finder</div>'
     '<div class="vs-sub">Vind leads, schrijf de mails, beheer je opvolging.</div></div></div>',
     unsafe_allow_html=True)

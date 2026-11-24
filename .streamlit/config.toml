@@ -1,0 +1,9 @@
+# VoiceStamp-thema voor de Lead Finder (donker, amber accent).
+# Dit bestand moet in een map die ".streamlit" heet, naast app.py.
+[theme]
+base = "dark"
+primaryColor = "#FFB547"
+backgroundColor = "#07060b"
+secondaryBackgroundColor = "#141020"
+textColor = "#ffffff"
+font = "sans serif"
