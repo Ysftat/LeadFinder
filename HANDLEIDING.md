@@ -28,7 +28,7 @@ De mail eindigt altijd na "Met vriendelijke groet," - jouw eigen handtekening ko
 
 ## 3. Direct mailen vanuit de app (Zoho)
 Let op: dit werkt alleen zolang de app open staat in je browser. Er is geen onbewaakt versturen.
-Er geldt een limiet van **10 mails per dag** (bewaakt je reputatie).
+Er geldt een limiet van **15 mails per dag** (bewaakt je reputatie).
 
 **Eenmalig: Zoho app-wachtwoord maken**
 1. Log in op Zoho Mail > ga naar je account/beveiliging.
