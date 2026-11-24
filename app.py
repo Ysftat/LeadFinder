@@ -1005,6 +1005,48 @@ def status_voor(lead, to):
         return lead.get("contact_email_status") or None
     return lead.get("email_status") or None
 
+def auto_dagbatch(cl, uid, rows, n, brand, rk, zk, start, bestaand_ids, voortgang=None):
+    """
+    Kiest zelf de beste leads: status Nieuw, nog geen reeks, hoogste score eerst. Zoekt voor de beste
+    kandidaten de eigenaar of manager, bouwt de reeksen en zet ze klaar voor goedkeuring.
+    Geeft (aantal_reeksen, nieuwe_outbox_rijen, logregels).
+    """
+    log = []
+    kandidaten = [r for r in rows
+                  if (r.get("status") or "Nieuw") == "Nieuw" and r["id"] not in bestaand_ids
+                  and ((r.get("email") or "").strip() or (r.get("website") or "").strip())]
+    kandidaten.sort(key=lambda r: -(r.get("score") or 0))
+    pool = kandidaten[: max(n * 2, n + 5)]            # iets meer dan nodig: niet elke lead levert een reeks op
+    te_zoeken = [r for r in pool if not r.get("contact_name") and (r.get("website") or "").strip() and SP_OK]
+    if te_zoeken:
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            futs = {ex.submit(zoek_beslisser, r, rk, zk): r for r in te_zoeken}
+            for k, f in enumerate(as_completed(futs), 1):
+                r = futs[f]
+                try:
+                    upd, uitleg = f.result()
+                except Exception:
+                    upd, uitleg = None, "zoeken mislukt"
+                if upd:
+                    r.update(upd)
+                    try:
+                        crm_update(cl, r["id"], uid, upd)
+                        if upd.get("contact_name"):
+                            crm_add_activity(cl, uid, r["id"], "Contactpersoon gevonden", uitleg)
+                    except Exception:
+                        pass
+                if voortgang: voortgang(k / len(futs))
+    nieuw_rows, gemaakt = [], 0
+    for r in pool:
+        if gemaakt >= n:
+            break
+        items, why = maak_reeks(r, brand, start, False, None)
+        if items is None:
+            log.append(f"{r.get('company_name')}: overgeslagen ({why})")
+            continue
+        nieuw_rows.extend(items); gemaakt += 1
+    return gemaakt, nieuw_rows, log
+
 def volledige_tekst(body, sig, optout=""):
     t = body.rstrip() + "\n" + (sig or "")
     if (optout or "").strip():
@@ -1493,7 +1535,7 @@ def tijd_geleden(dt):
 def crm_recent_activities(client, user_id, days=90):
     try:
         from datetime import datetime as _dtm, timedelta as _td
-        sinds = (_dtm.utcnow() - _td(days=days)).isoformat()
+        sinds = (_dtm.now(__import__("datetime").timezone.utc).replace(tzinfo=None) - _td(days=days)).isoformat()
         r = (client.table("activities").select("*").eq("user_id", user_id)
              .gte("created_at", sinds).order("created_at", desc=True).execute())
         return r.data or []
@@ -2043,6 +2085,39 @@ with tab_crm:
                                 "alleen adressen die op hun eigen site staan tellen. "
                                 "Reoon heeft een gratis pakket.")
                     recs = {r["id"]: r for r in data}
+                    st.markdown("#### ✨ Laat de app de beste leads kiezen")
+                    st.caption("Geen selectie nodig. De app pakt de leads met de hoogste score die nog niet gemaild "
+                               "zijn, zoekt de eigenaar of manager, schrijft de mails en zet alles klaar. "
+                               "Jij leest en keurt goed in het tabblad Outbox.")
+                    a1, a2 = st.columns([1, 2])
+                    n_auto = a1.number_input("Aantal leads", 1, 25, 10, key="auto_n")
+                    if a2.button("✨ Kies de beste leads en zet de mails klaar", type="primary", key="auto_go"):
+                        from datetime import date as _dd0
+                        _cl = st.session_state["sb_client"]; _uid = st.session_state["sb_user"]
+                        try:
+                            _bestaand = {o["lead_id"] for o in ob_load(_cl, _uid)
+                                         if o["status"] in ("pending_review", "approved", "sent")}
+                        except Exception as e:
+                            _bestaand = set()
+                            st.error(f"Outbox niet bereikbaar. Heb je de nieuwe supabase_setup.sql uitgevoerd? ({e})")
+                        _bar = st.progress(0.0, text="Beslissers zoeken ...")
+                        gemaakt_n, rijen_n, log_n = auto_dagbatch(
+                            _cl, _uid, [dict(r) for r in data], int(n_auto), brand, _rk, _zk,
+                            _dd0.today(), _bestaand, lambda p: _bar.progress(min(p, 1.0), text="Beslissers zoeken ..."))
+                        _bar.empty()
+                        if rijen_n:
+                            try:
+                                ob_create(_cl, _uid, rijen_n)
+                                st.success(f"{gemaakt_n} reeksen staan klaar in je Outbox. Open het tabblad "
+                                           "**Outbox & antwoorden** en keur ze goed.")
+                            except Exception as e:
+                                st.error(f"Klaarzetten mislukt: {e}")
+                        else:
+                            st.warning("Er waren geen leads om klaar te zetten. Zoek eerst nieuwe leads en sla ze op in je CRM.")
+                        if log_n:
+                            with st.expander(f"{len(log_n)} leads overgeslagen"):
+                                st.write("\n".join(f"- {x}" for x in log_n))
+                    st.markdown("#### Of kies zelf (optioneel)")
                     modus = st.radio("Welke leads?", ["Gekozen leads", "Eerste 25 zonder contactpersoon"],
                                      horizontal=True, key="sp_modus")
                     if modus == "Gekozen leads":
@@ -2278,6 +2353,36 @@ with tab_out:
         groepen = {}
         for o in wacht:
             groepen.setdefault(o["lead_id"], []).append(o)
+        if groepen:
+            if st.button(f"✅ Keur alle {len(groepen)} reeksen in één keer goed", type="primary", key="ob_ok_alle",
+                         help="Keurt alle reeksen goed waar geen fout in zit. Reeksen met een fout blijven staan."):
+                goed_n, blijft = 0, []
+                for lid_, items_ in groepen.items():
+                    items_.sort(key=lambda x: x["step"])
+                    lead_ = leadmap.get(lid_, {}); to_ = items_[0]["to_email"]; stt_ = status_voor(lead_, to_)
+                    fouten_ = []; nieuw_ = []
+                    for it_ in items_:
+                        subj_ = st.session_state.get(f"obs_{it_['id']}", it_["subject"])
+                        body_ = st.session_state.get(f"obb_{it_['id']}", it_["body"])
+                        f_, _ = SP.gate({"to_email": to_, "subject": subj_, "body": body_, "step": it_["step"]},
+                                        lead_.get("status") or "Nieuw", stt_, allow_risky, mx_check=True,
+                                        full_text=volledige_tekst(body_, sig, optout))
+                        fouten_ += f_; nieuw_.append((it_, subj_, body_))
+                    if fouten_:
+                        blijft.append(f"{lead_.get('company_name', '?')}: {' '.join(sorted(set(fouten_)))}")
+                        continue
+                    for it_, subj_, body_ in nieuw_:
+                        ob_update(cl, uid, it_["id"], {"status": "approved", "subject": subj_, "body": body_})
+                    crm_add_activity(cl, uid, lid_, "Reeks goedgekeurd", f"{len(nieuw_)} mails gepland")
+                    goed_n += 1
+                st.session_state["ob_alle_msg"] = (goed_n, blijft)
+                st.rerun()
+            if st.session_state.get("ob_alle_msg"):
+                _g, _b = st.session_state.pop("ob_alle_msg")
+                st.success(f"{_g} reeksen goedgekeurd.")
+                if _b:
+                    st.warning("Niet goedgekeurd:\n\n" + "\n".join(f"- {x}" for x in _b))
+            st.caption("Wil je eerst lezen? Open hieronder een lead. Je ziet alle 3 de mails en kunt ze aanpassen.")
         for lid, items in list(groepen.items())[:25]:
             items.sort(key=lambda x: x["step"])
             lead = leadmap.get(lid, {})
