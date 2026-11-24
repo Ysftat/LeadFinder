@@ -1283,6 +1283,14 @@ st.markdown("""
       filter:brightness(1.07); background:#FFB547; border-color:#FFB547; color:#1b1206; }
   .stButton > button:disabled { opacity:0.4; }
 
+  /* zijbalk: zelfde kaartstijl als het dashboard */
+  [data-testid="stSidebar"] { background:#0c0a14; }
+  [data-testid="stSidebar"] [data-testid="stSidebarHeader"] { padding-bottom:0; }
+  [data-testid="stSidebar"] h2 { color:#c4b5fd; font-size:10.5px !important; font-weight:800 !important; letter-spacing:1.6px; text-transform:uppercase; margin:6px 0 4px 0; }
+  [data-testid="stSidebar"] [data-testid="stExpander"] { border-radius:16px; }
+  [data-testid="stSidebar"] label p { font-size:13px; color:#cfc9de; }
+  [data-testid="stSidebar"] .stButton > button { width:100%; }
+  [data-testid="stSidebar"] hr { margin:16px 0 !important; }
   /* kaarten en velden */
   [data-testid="stMetric"] { background:rgba(20,16,32,0.9); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:12px 14px; }
   [data-testid="stMetricLabel"] p { color:#8b84a3; font-size:11.5px; font-weight:700; }
