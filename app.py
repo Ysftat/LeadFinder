@@ -1202,30 +1202,259 @@ def draai(preset, area, whole, scrape, mx_check, dedupe_dom, n_per_dag, max_site
 # ------------------------------------------------------------------ UI
 st.set_page_config(page_title="VoiceStamp Lead Finder", page_icon="🎙️", layout="wide")
 
-# ---- Huisstijl (thema-veilig: vecht niet tegen light/dark mode) ----
-ACCENT = "#2E5D4B"   # VoiceStamp-groen; ook in .streamlit/config.toml zetten
-st.markdown(f"""
+# ---- Huisstijl: de donkere VoiceStamp-look (kleuren en vormen uit de VoiceStamp-app) ----
+VS = {"bg": "#07060b", "card": "rgba(20,16,32,0.9)", "line": "rgba(255,255,255,0.08)",
+      "amber": "#FFB547", "on_amber": "#1b1206", "lilac": "#c4b5fd", "purple": "#7c3aed",
+      "soft": "#8b84a3", "body": "#cfc9de"}
+st.markdown("""
 <style>
-  .vs-header {{ display:flex; align-items:center; gap:14px; margin: 2px 0 6px 0; }}
-  .vs-logo {{ width:46px; height:46px; border-radius:12px; background:{ACCENT}; color:#fff;
-             display:flex; align-items:center; justify-content:center; font-size:24px; flex:0 0 auto; }}
-  .vs-title {{ font-size:30px; font-weight:800; line-height:1.05; }}
-  .vs-sub {{ opacity:0.7; margin-top:3px; font-size:14px; }}
-  .stButton>button {{ border-radius:10px; font-weight:600; }}
-  .stTabs [data-baseweb="tab-list"] {{ gap:4px; }}
-  .stTabs [data-baseweb="tab"] {{ border-radius:10px 10px 0 0; padding:8px 16px; }}
-  .vs-step {{ padding:14px 16px; border:1px solid rgba(128,128,128,0.25); border-radius:14px;
-             height:100%; }}
-  .vs-step b {{ color:{ACCENT}; }}
+  @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+
+  /* lettertype: alleen op tekstelementen, zodat de pijltjes en icoontjes heel blijven */
+  .stApp, .stApp p, .stApp li, .stApp label, .stApp h1, .stApp h2, .stApp h3, .stApp h4,
+  .stApp button, .stApp input, .stApp textarea, .stApp [data-baseweb="select"] {
+      font-family: 'Manrope', system-ui, -apple-system, 'Segoe UI', sans-serif; }
+  .stApp { background: radial-gradient(900px 480px at 0% -8%, rgba(124,58,237,0.20), transparent 60%), #07060b; }
+  .block-container { max-width: 1240px; padding-top: 4.2rem; }
+  h1, h2, h3, h4 { font-weight: 800 !important; letter-spacing: -0.01em; }
+  h3 { font-size: 18px !important; margin-top: 4px; }
+  h4 { font-size: 15px !important; }
+  hr { border-color: rgba(255,255,255,0.08) !important; margin: 26px 0 10px 0 !important; }
+  [data-testid="stCaptionContainer"], .stApp small { color: #8b84a3; }
+
+  /* bewegingen, zoals in de VoiceStamp-app: zacht inkomen (450 ms, 12 px omhoog), knoppen drukken 4% in */
+  @keyframes vsIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+  [role="tabpanel"] [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"],
+  [role="tabpanel"] [data-testid="stVerticalBlock"] > .element-container { animation: vsIn .45s cubic-bezier(.215,.61,.355,1) both; }
+  [role="tabpanel"] [data-testid="stVerticalBlock"] > :nth-child(2) { animation-delay: .05s; }
+  [role="tabpanel"] [data-testid="stVerticalBlock"] > :nth-child(3) { animation-delay: .10s; }
+  [role="tabpanel"] [data-testid="stVerticalBlock"] > :nth-child(4) { animation-delay: .15s; }
+  [role="tabpanel"] [data-testid="stVerticalBlock"] > :nth-child(5) { animation-delay: .20s; }
+  [role="tabpanel"] [data-testid="stVerticalBlock"] > :nth-child(n+6) { animation-delay: .25s; }
+  .vs-kpi, .vs-card, .vs-insight { animation: vsIn .45s cubic-bezier(.215,.61,.355,1) both; }
+  .vs-kpi:nth-child(2) { animation-delay: .06s; } .vs-kpi:nth-child(3) { animation-delay: .12s; }
+  .vs-kpi:nth-child(4) { animation-delay: .18s; } .vs-kpi:nth-child(5) { animation-delay: .24s; }
+  .vs-kpi:nth-child(6) { animation-delay: .30s; }
+  .vs-fill { animation: vsGrow .8s cubic-bezier(.215,.61,.355,1) both; transform-origin: left; }
+  @keyframes vsGrow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+  /* kop */
+  .vs-top { display:flex; align-items:center; gap:12px; margin-bottom: 4px; }
+  .vs-logo { width:44px; height:44px; border-radius:14px; background:#FFB547; flex:0 0 auto;
+             display:flex; align-items:center; justify-content:center; }
+  .vs-title { font-size:18px; font-weight:800; line-height:1.15; color:#fff; }
+  .vs-sub { color:#8b84a3; font-size:12.5px; margin-top:1px; }
+
+  /* tabbladen: een vlakke balk, het actieve tabblad is een lichtgrijs vlak */
+  [role="tablist"] { gap:6px; background:rgba(255,255,255,0.05); border-radius:12px; padding:4px;
+        border-bottom:none !important; box-shadow:none !important; margin-bottom: 6px; }
+  [role="tab"] { flex:1 1 0; justify-content:center; border-radius:9px !important; padding:9px 8px !important;
+        height:auto !important; border:none !important; background:transparent !important;
+        transition: background .2s ease, color .2s ease; }
+  [role="tab"] p, [role="tab"] div, [role="tab"] span { margin:0; color:#8b84a3 !important; font-size:12.5px !important; font-weight:700 !important; }
+  [role="tab"]:hover { background:rgba(255,255,255,0.05) !important; }
+  [role="tab"][aria-selected="true"] { background:rgba(255,255,255,0.10) !important; }
+  [role="tab"][aria-selected="true"] p, [role="tab"][aria-selected="true"] div,
+  [role="tab"][aria-selected="true"] span { color:#fff !important; }
+  [data-baseweb="tab-highlight"], [data-baseweb="tab-border"], .react-aria-SelectionIndicator, [role="tablist"]::after { display:none !important; }
+  [data-testid="stTabs"] > div:first-child { border-bottom:none !important; box-shadow:none !important; }
+  /* binnenste tabbladen (Mail 1, 2, 3): kleinere pillen */
+  [role="tabpanel"] [role="tablist"] { background:transparent; padding:0; gap:6px; }
+  [role="tabpanel"] [role="tab"] { flex:0 0 auto; border:1px solid rgba(255,255,255,0.12) !important; border-radius:999px !important; padding:7px 12px !important; }
+  [role="tabpanel"] [role="tab"][aria-selected="true"] { background:#FFB547 !important; border-color:#FFB547 !important; }
+  [role="tabpanel"] [role="tab"][aria-selected="true"] p, [role="tabpanel"] [role="tab"][aria-selected="true"] div,
+  [role="tabpanel"] [role="tab"][aria-selected="true"] span { color:#1b1206 !important; }
+
+  /* knoppen: hoofdknop = volle amber pil, de rest = pil met amber rand */
+  .stButton > button, .stDownloadButton > button, .stFormSubmitButton > button {
+      border-radius:999px; font-weight:700; padding:0.45rem 1.2rem; background:transparent;
+      border:1.5px solid rgba(255,181,71,0.5); color:#FFB547;
+      transition: transform .15s ease, filter .15s ease, background .2s ease, border-color .2s ease; }
+  .stButton > button p, .stDownloadButton > button p { color:#FFB547; font-weight:700; }
+  .stButton > button:hover, .stDownloadButton > button:hover { background:rgba(255,181,71,0.10); border-color:#FFB547; color:#FFB547; }
+  .stButton > button:active, .stDownloadButton > button:active, .stFormSubmitButton > button:active { transform:scale(0.96); }
+  .stButton > button[kind="primary"], .stDownloadButton > button[kind="primary"],
+  button[data-testid="stBaseButton-primary"], button[data-testid="stBaseButton-primaryFormSubmit"] {
+      background:#FFB547; border-color:#FFB547; color:#1b1206; }
+  .stButton > button[kind="primary"] p, button[data-testid="stBaseButton-primary"] p,
+  .stDownloadButton > button[kind="primary"] p, button[data-testid="stBaseButton-primaryFormSubmit"] p { color:#1b1206 !important; font-weight:800; }
+  .stButton > button[kind="primary"]:hover, button[data-testid="stBaseButton-primary"]:hover {
+      filter:brightness(1.07); background:#FFB547; border-color:#FFB547; color:#1b1206; }
+  .stButton > button:disabled { opacity:0.4; }
+
+  /* zijbalk: zelfde kaartstijl als het dashboard */
+  [data-testid="stSidebar"] { background:#0c0a14; }
+  [data-testid="stSidebar"] [data-testid="stSidebarHeader"] { padding-bottom:0; }
+  [data-testid="stSidebar"] h2 { color:#c4b5fd; font-size:10.5px !important; font-weight:800 !important; letter-spacing:1.6px; text-transform:uppercase; margin:6px 0 4px 0; }
+  [data-testid="stSidebar"] [data-testid="stExpander"] { border-radius:16px; }
+  [data-testid="stSidebar"] label p { font-size:13px; color:#cfc9de; }
+  [data-testid="stSidebar"] .stButton > button { width:100%; }
+  [data-testid="stSidebar"] hr { margin:16px 0 !important; }
+  /* kaarten en velden */
+  [data-testid="stMetric"] { background:rgba(20,16,32,0.9); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:12px 14px; }
+  [data-testid="stMetricLabel"] p { color:#8b84a3; font-size:11.5px; font-weight:700; }
+  [data-testid="stMetricValue"] { font-weight:900; }
+  [data-testid="stExpander"] { background:rgba(20,16,32,0.9); border:1px solid rgba(255,255,255,0.08); border-radius:20px; }
+  [data-testid="stExpander"] summary { font-weight:700; }
+  [data-testid="stAlert"] { border-radius:16px; }
+  [data-testid="stSidebar"] { border-right:1px solid rgba(255,255,255,0.08); }
+  [data-testid="stDataFrame"], [data-testid="stDataEditor"] { border:1px solid rgba(255,255,255,0.08); border-radius:16px; overflow:hidden; }
+  [data-baseweb="input"], [data-baseweb="textarea"], [data-baseweb="select"] > div { border-radius:12px; }
+  [data-testid="stVerticalBlockBorderWrapper"] { border-radius:20px; background:rgba(20,16,32,0.9); border-color:rgba(255,255,255,0.08); }
+
+  /* bouwstenen uit het VoiceStamp-dashboard */
+  .vs-insight { margin:10px 0 0 0; padding:18px; border-radius:22px; border:1px solid rgba(196,181,253,0.25);
+      background: radial-gradient(120% 140% at 0% 0%, rgba(124,58,237,0.55), rgba(124,58,237,0.12) 55%, rgba(20,16,32,0.9)); }
+  .vs-insight small { color:#c4b5fd; font-size:10.5px; font-weight:800; letter-spacing:1.6px; }
+  .vs-insight h2 { color:#fff; font-size:24px; line-height:29px; font-weight:800; margin:6px 0 0 0; padding:0; letter-spacing:-0.4px; }
+  .vs-insight p { color:#ddd6f3; font-size:14px; line-height:20px; margin:8px 0 0 0; }
+  .vs-kpis { display:flex; gap:8px; margin:10px 0 4px 0; }
+  .vs-kpi { flex:1; min-width:0; padding:12px; border-radius:16px; background:rgba(20,16,32,0.9); border:1px solid rgba(255,255,255,0.08); }
+  .vs-kpi .l { color:#8b84a3; font-size:11.5px; font-weight:700; }
+  .vs-kpi .v { color:#fff; font-size:22px; font-weight:900; margin-top:4px; }
+  .vs-kpi .s { color:#6f6884; font-size:10.5px; margin-top:4px; line-height:14px; }
+  .vs-kpi.amber { border-color:rgba(255,181,71,0.35); background:rgba(255,181,71,0.08); }
+  .vs-card { padding:16px; border-radius:20px; background:rgba(20,16,32,0.9); border:1px solid rgba(255,255,255,0.08); margin:8px 0; }
+  .vs-card h4 { color:#fff; font-size:15px; font-weight:800; margin:0 0 10px 0; padding:0; }
+  .vs-f { margin:7px 0; }
+  .vs-f .r { display:flex; justify-content:space-between; font-size:13.5px; color:#e2dfea; }
+  .vs-f .r b { color:#fff; font-weight:900; }
+  .vs-tr { height:9px; border-radius:5px; background:rgba(255,255,255,0.07); margin-top:5px; overflow:hidden; }
+  .vs-tr i { display:block; height:9px; border-radius:5px; }
+  .vs-f .n { color:#8b84a3; font-size:11.5px; margin-top:3px; }
+  .vs-step { min-height:120px; padding:16px 18px; background:rgba(20,16,32,0.9); border:1px solid rgba(255,255,255,0.08); border-radius:20px; height:100%; color:#cfc9de; }
+  .vs-step b { color:#FFB547; font-size:15px; }
+  .vs-px { display:flex; gap:3px; } .vs-px > div { flex:1; display:flex; flex-direction:column; gap:3px; }
+  .vs-px span { height:11px; border-radius:2px; background:rgba(255,255,255,0.04); }
+  .vs-px span.on { background:rgba(167,139,250,0.8); } .vs-px > div:last-child span.on { background:#FFB547; }
+  .vs-ax { display:flex; justify-content:space-between; color:#6f6884; font-size:11px; margin-top:6px; }
+  .vs-heat { display:grid; gap:3px; align-items:center; } .vs-heat i { height:22px; border-radius:3px; display:block; }
+  .vs-heat em { color:#6f6884; font-size:10.5px; font-style:normal; }
+  .vs-stack { display:flex; height:12px; border-radius:6px; overflow:hidden; gap:2px; }
+  .vs-legend { display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:10px; color:#cfc9de; font-size:12.5px; }
+  .vs-legend i { display:inline-block; width:9px; height:9px; border-radius:5px; margin-right:6px; }
+  .vs-ev { display:flex; gap:12px; align-items:center; margin:8px 0; color:#ece9f3; font-size:13.5px; }
+  .vs-ev .ic { width:30px; height:30px; border-radius:10px; display:flex; align-items:center; justify-content:center; flex:none; font-size:14px; }
+  .vs-ev small { display:block; color:#6f6884; font-size:11.5px; margin-top:1px; }
+  .vs-muted { color:#8b84a3; font-size:13.5px; line-height:19px; }
+  /* periodekeuze als pillen (segmented control), rechts uitgelijnd */
+  [data-testid="stButtonGroup"] { justify-content:flex-end; }
+  [data-testid="stButtonGroup"] button { border-radius:999px !important; border:1px solid rgba(255,255,255,0.12) !important;
+        background:transparent !important; padding:7px 12px !important; min-height:0 !important; margin-left:6px; transition:background .2s, transform .15s; }
+  [data-testid="stButtonGroup"] button p { font-size:12.5px !important; font-weight:700 !important; color:#cfc9de !important; }
+  [data-testid="stButtonGroup"] button[aria-checked="true"], [data-testid="stButtonGroup"] button[aria-pressed="true"],
+  [data-testid="stButtonGroup"] button[kind="segmented_controlActive"] { background:#FFB547 !important; border-color:#FFB547 !important; }
+  [data-testid="stButtonGroup"] button[aria-checked="true"] p, [data-testid="stButtonGroup"] button[aria-pressed="true"] p,
+  [data-testid="stButtonGroup"] button[kind="segmented_controlActive"] p { color:#1b1206 !important; }
+  [data-testid="stButtonGroup"] button:active { transform:scale(0.96); }
+  /* periodekeuze als pillen (terugval voor oudere Streamlit) */
+  [data-testid="stRadio"] [role="radiogroup"] { gap:6px; flex-wrap:wrap; }
+  [data-testid="stRadio"] [role="radiogroup"] label { padding:7px 12px; border-radius:999px; border:1px solid rgba(255,255,255,0.12); transition:background .2s, border-color .2s; cursor:pointer; margin:0; }
+  [data-testid="stRadio"] [role="radiogroup"] label > div:first-child { display:none; }
+  [data-testid="stRadio"] [role="radiogroup"] label p { font-size:12.5px; font-weight:700; color:#cfc9de; }
+  [data-testid="stRadio"] [role="radiogroup"] label:has(input:checked) { background:#FFB547; border-color:#FFB547; }
+  [data-testid="stRadio"] [role="radiogroup"] label:has(input:checked) p { color:#1b1206; }
+  @media (max-width: 760px) { .vs-kpis { flex-wrap:wrap; } .vs-kpi { flex:1 1 40%; } }
 </style>
 """, unsafe_allow_html=True)
 
+import html as _html
+
+def vs_insight(label, title, sub=""):
+    """Grote paarse kaart bovenaan een tabblad (zoals het hoofdinzicht in het VoiceStamp-dashboard)."""
+    st.markdown(
+        f'<div class="vs-insight"><small>{_html.escape(label.upper())}</small>'
+        f'<h2>{_html.escape(title)}</h2>' + (f'<p>{_html.escape(sub)}</p>' if sub else '') + '</div>',
+        unsafe_allow_html=True)
+
+def vs_kpis(items):
+    """Rij cijfertegels. items = [(label, waarde, onderschrift, 'amber' of '')]."""
+    tegels = "".join(
+        f'<div class="vs-kpi {(it[3] if len(it) > 3 else "")}"><div class="l">{_html.escape(str(it[0]))}</div>'
+        f'<div class="v">{_html.escape(str(it[1]))}</div>'
+        + (f'<div class="s">{_html.escape(str(it[2]))}</div>' if len(it) > 2 and it[2] else '') + '</div>'
+        for it in items)
+    st.markdown(f'<div class="vs-kpis">{tegels}</div>', unsafe_allow_html=True)
+
+def vs_funnel(titel, rijen):
+    """Kaart met voortgangsbalkjes. rijen = [(label, waarde, kleur, notitie)]."""
+    top = max([r[1] for r in rijen] + [1])
+    delen = []
+    for r in rijen:
+        breed = max(2, round(r[1] / top * 100)) if r[1] else 0
+        note = f'<div class="n">{_html.escape(r[3])}</div>' if len(r) > 3 and r[3] else ''
+        delen.append(f'<div class="vs-f"><div class="r"><span>{_html.escape(r[0])}</span><b>{r[1]}</b></div>'
+                     f'<div class="vs-tr"><i class="vs-fill" style="width:{breed}%;background:{r[2]}"></i></div>{note}</div>')
+    st.markdown(f'<div class="vs-card"><h4>{_html.escape(titel)}</h4>{"".join(delen)}</div>', unsafe_allow_html=True)
+
+def vs_card(titel, inhoud_html, sub=""):
+    st.markdown(f'<div class="vs-card"><h4>{_html.escape(titel)}</h4>'
+                + (f'<div class="vs-muted" style="margin:-6px 0 10px 0">{_html.escape(sub)}</div>' if sub else '')
+                + inhoud_html + '</div>', unsafe_allow_html=True)
+
+def vs_pixels_html(data):
+    """Blokjesgrafiek: data = [(label, aantal)]; de laatste kolom (vandaag) is amber."""
+    rows = 8; mx = max([d[1] for d in data] + [1])
+    kol = []
+    for _, n in data:
+        lit = round(n / mx * rows)
+        kol.append("<div>" + "".join(f'<span class="{"on" if (rows - r <= lit and n > 0) else ""}"></span>' for r in range(rows)) + "</div>")
+    return (f'<div class="vs-px">{"".join(kol)}</div>'
+            f'<div class="vs-ax"><span>{data[0][0]}</span><span>{data[-1][0]}</span></div>')
+
+def vs_heat_html(grid, uren):
+    """Warmtekaart weekdag x uur. grid[dag][uur] = aantal."""
+    mx = max([v for r in grid for v in r] + [1])
+    dagen = ["ma", "di", "wo", "do", "vr", "za", "zo"]
+    kop = "<span></span>" + "".join(f'<em style="text-align:center">{h if h % 3 == 0 else ""}</em>' for h in uren)
+    rij = ""
+    for d in range(7):
+        rij += f"<em>{dagen[d]}</em>" + "".join(
+            f'<i style="background:rgba(196,181,253,{0.06 + grid[d][h] / mx * 0.94:.2f})"></i>' for h in uren)
+    return f'<div class="vs-heat" style="grid-template-columns:22px repeat({len(uren)},1fr)">{kop}{rij}</div>'
+
+def vs_stack_html(delen):
+    """Gestapelde balk met legenda. delen = [(label, aantal, kleur)]."""
+    tot = sum(d[1] for d in delen) or 1
+    balk = "".join(f'<div style="flex:{d[1]};background:{d[2]}"></div>' for d in delen if d[1])
+    leg = "".join(f'<span><i style="background:{d[2]}"></i>{_html.escape(d[0])} {round(d[1] / tot * 100)}%</span>' for d in delen if d[1])
+    return f'<div class="vs-stack">{balk}</div><div class="vs-legend">{leg}</div>'
+
+def vs_events_html(events):
+    """Net gebeurd. events = [(glyph, kleur, tekst, tijd)]."""
+    return "".join(f'<div class="vs-ev"><div class="ic" style="background:{k}22;color:{k}">{g}</div>'
+                   f'<div>{_html.escape(t)}<small>{_html.escape(w)}</small></div></div>' for g, k, t, w in events)
+
+def tijd_geleden(dt):
+    import pandas as _pd
+    sec = (_pd.Timestamp.now(tz="UTC") - dt).total_seconds()
+    if sec < 3600: return f"{max(1, int(sec // 60))} min geleden"
+    if sec < 86400: return f"{int(sec // 3600)} uur geleden"
+    d = int(sec // 86400)
+    return "gisteren" if d == 1 else f"{d} dagen geleden"
+
+def crm_recent_activities(client, user_id, days=90):
+    try:
+        from datetime import datetime as _dtm, timedelta as _td
+        sinds = (_dtm.utcnow() - _td(days=days)).isoformat()
+        r = (client.table("activities").select("*").eq("user_id", user_id)
+             .gte("created_at", sinds).order("created_at", desc=True).execute())
+        return r.data or []
+    except Exception:
+        return []
+
+_LOGO = ('<svg width="26" height="26" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">'
+         '<rect x="3"  y="12" width="3.6" height="6"  rx="1.8" fill="#1b1206"/>'
+         '<rect x="8.6" y="7"  width="3.6" height="16" rx="1.8" fill="#1b1206"/>'
+         '<rect x="14.2" y="3" width="3.6" height="24" rx="1.8" fill="#1b1206"/>'
+         '<rect x="19.8" y="8" width="3.6" height="14" rx="1.8" fill="#1b1206"/>'
+         '<rect x="25.4" y="12" width="3.6" height="6" rx="1.8" fill="#1b1206"/></svg>')
 st.markdown(
-    '<div class="vs-header"><div class="vs-logo">🎙️</div>'
+    f'<div class="vs-top"><div class="vs-logo">{_LOGO}</div>'
     '<div><div class="vs-title">VoiceStamp Lead Finder</div>'
     '<div class="vs-sub">Vind leads, schrijf de mails, beheer je opvolging.</div></div></div>',
     unsafe_allow_html=True)
-st.write("")
 
 with st.sidebar:
     st.header("Instellingen")
@@ -1372,12 +1601,15 @@ with tab_res:
         leads = st.session_state["leads"]
         met = sum(1 for l in leads if l["email"])
         haken = sum(1 for l in leads if l.get("haak"))
-        c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("Leads totaal", len(leads))
-        c2.metric("Met e-mail", met)
-        c3.metric("Met haak", haken)
-        c4.metric("Heeft app", sum(1 for l in leads if l.get("heeft_app")))
-        c5.metric("Verzenddagen", (met // max(int(n_per_dag), 1)) + 1 if met else 0)
+        top3 = sorted(leads, key=lambda l: l.get("_score", 0), reverse=True)[:1]
+        vs_insight("Deze zoekactie", f"{len(leads)} leads gevonden, {met} met e-mailadres.",
+                   (f"Hoogste score: {top3[0]['naam']} ({top3[0].get('_score', 0)}). " if top3 else "")
+                   + "Sorteer op score, kopieer de mail of sla ze op in je CRM.")
+        vs_kpis([("Leads totaal", len(leads), "gevonden"),
+                 ("Met e-mail", met, f"{round(met / max(len(leads), 1) * 100)}% van alle leads"),
+                 ("Met haak", haken, "persoonlijke openingszin"),
+                 ("Heeft app", sum(1 for l in leads if l.get("heeft_app")), "heeft al een eigen app"),
+                 ("Verzenddagen", (met // max(int(n_per_dag), 1)) + 1 if met else 0, f"bij {int(n_per_dag)} per dag")])
 
         f1, f2, f3 = st.columns([2, 1, 1])
         min_score = f1.slider("Toon alleen leads met score \u2265", 0, 100, 0, step=5)
@@ -1501,7 +1733,9 @@ with tab_res:
         elif crm_beschikbaar():
             st.caption("Log links in bij Account / CRM om deze leads op te slaan.")
     else:
-        st.markdown("#### Zo werkt het")
+        vs_insight("Klaar om te beginnen", "Kies links een campagne en provincie en klik op Start.",
+                   "Je krijgt leads met e-mail, een score, een openingszin en een kant-en-klare mail.")
+        st.write("")
         s1, s2, s3 = st.columns(3)
         s1.markdown('<div class="vs-step"><b>1. Kies</b><br>Selecteer links een campagne '
                     'en provincie en klik op Start.</div>', unsafe_allow_html=True)
@@ -1509,8 +1743,6 @@ with tab_res:
                     'een score en een kant-en-klare mail per lead.</div>', unsafe_allow_html=True)
         s3.markdown('<div class="vs-step"><b>3. Werk bij</b><br>Kopieer de mails, download alles, '
                     'of sla op in je CRM en volg later op.</div>', unsafe_allow_html=True)
-        st.write("")
-        st.info("Klaar om te beginnen? Kies links een campagne en provincie en klik op **Start**.")
 
 with tab_crm:
     if not st.session_state.get("sb_user"):
@@ -1519,8 +1751,6 @@ with tab_crm:
         else:
             st.info("Het CRM is nog niet ingesteld. Zie **LEES_MIJ_crm.md** om je gratis database te koppelen.")
     else:
-            st.divider()
-            st.header("📇 Mijn CRM")
 
             with st.expander("📥 Bestaande Excel importeren"):
                 st.caption("Zet je bestaande leadlijst (bijv. VoiceStamp_leads.xlsx) in \u00e9\u00e9n keer "
@@ -1573,22 +1803,102 @@ with tab_crm:
                 actief = ~cdf["status"].isin(["Klant", "Afgewezen", "Do not contact"])
                 opvolg = cdf[(cdf["next_action_date"].notna()) &
                              (cdf["next_action_date"].astype(str) <= vandaag) & actief]
-                st.markdown("### Mijn overzicht")
-                m = st.columns(6)
-                m[0].metric("Nieuw", _telt("Nieuw"))
-                m[1].metric("Gemaild", _telt("Gemaild"))
-                m[2].metric("Follow-up nodig", len(opvolg))
-                m[3].metric("Reacties", _telt("Reactie"))
-                m[4].metric("Afspraken", _telt("Afspraak"))
-                m[5].metric("Klanten", _telt("Klant"))
+                _n = len(cdf)
+                _gemaild = int(cdf["status"].isin(["Gemaild", "Follow-up nodig", "Reactie", "Afspraak", "Klant"]).sum())
+                _reactie = int(cdf["status"].isin(["Reactie", "Afspraak", "Klant"]).sum())
+                _afspraak = int(cdf["status"].isin(["Afspraak", "Klant"]).sum())
+                vs_insight("Mijn CRM",
+                           (f"{len(opvolg)} lead{'s' if len(opvolg) != 1 else ''} wacht{'en' if len(opvolg) != 1 else ''} op opvolging."
+                            if len(opvolg) else f"{_n} leads in je CRM, niets dat vandaag opvolging nodig heeft."),
+                           f"{_telt('Nieuw')} nieuw, {_telt('Gemaild')} gemaild, {_telt('Reactie')} reacties.")
+                vs_kpis([("Nieuw", _telt("Nieuw"), "nog niet gemaild"),
+                         ("Gemaild", _telt("Gemaild"), "wacht op antwoord"),
+                         ("Follow-up nodig", len(opvolg), "vandaag of eerder", "amber" if len(opvolg) else ""),
+                         ("Reacties", _telt("Reactie"), "heeft gereageerd"),
+                         ("Afspraken", _telt("Afspraak"), "staat gepland"),
+                         ("Klanten", _telt("Klant"), "gewonnen")])
+                # ---- Analytics: zoals de analytics-pagina van VoiceStamp ----
+                import pandas as _pd
+                cl = st.session_state["sb_client"]; uid = st.session_state["sb_user"]
+                kop_l, kop_r = st.columns([1, 1])
+                _opts = ["7 dagen", "30 dagen", "90 dagen"]
+                if hasattr(st, "segmented_control"):
+                    periode = st.session_state.get("an_dagen") or "30 dagen"
+                    with kop_r:
+                        periode = st.segmented_control("Periode", _opts, default="30 dagen", key="an_dagen",
+                                                       label_visibility="collapsed") or "30 dagen"
+                else:
+                    periode = kop_r.radio("Periode", _opts, index=1, horizontal=True, key="an_dagen",
+                                          label_visibility="collapsed")
+                n_dagen = int(periode.split()[0])
+                acts_all = crm_recent_activities(cl, uid, 90)
+                if acts_all:
+                    adf = _pd.DataFrame(acts_all)
+                    adf["t"] = _pd.to_datetime(adf["created_at"], utc=True, errors="coerce")
+                    adf = adf.dropna(subset=["t"])
+                    adf["lokaal"] = adf["t"].dt.tz_convert("Europe/Amsterdam")
+                else:
+                    adf = _pd.DataFrame(columns=["type", "lead_id", "t", "lokaal", "description"])
+                grens = _pd.Timestamp.now(tz="Europe/Amsterdam").normalize() - _pd.Timedelta(days=n_dagen - 1)
+                adf_p = adf[adf["lokaal"] >= grens] if len(adf) else adf
+                mails_p = adf_p[adf_p["type"] == "Mail verstuurd"] if len(adf_p) else adf_p
 
-                if len(opvolg):
-                    st.markdown("#### 🔥 Vandaag opvolgen")
-                    st.dataframe(
-                        opvolg[["company_name", "status", "next_action", "next_action_date"]]
-                        .rename(columns={"company_name": "Bedrijf", "status": "Status",
-                                         "next_action": "Volgende actie", "next_action_date": "Datum"}),
-                        use_container_width=True, hide_index=True)
+                links, rechts = st.columns([2, 1])
+                with links:
+                    k1, k2 = st.columns(2)
+                    with k1:
+                        vs_funnel("Van lead naar klant", [
+                            ("In je CRM", _n, "#c4b5fd"),
+                            ("Gemaild", _gemaild, "#a78bfa", f"{_n - _gemaild} nog niet gemaild" if _n else ""),
+                            ("Reactie gekregen", _reactie, "#38bdf8", f"{100 - round(_reactie / _gemaild * 100)}% reageert niet" if _gemaild else ""),
+                            ("Afspraak", _afspraak, "#4ade80"),
+                            ("Klant", _telt("Klant"), "#FFB547")])
+                    with k2:
+                        if "segment" in cdf.columns and _n:
+                            tel = cdf["segment"].fillna("").replace("", "Onbekend").value_counts()
+                            kl_ = ["#c4b5fd", "#FFB547", "#4ade80", "#38bdf8", "#f0abfc"]
+                            delen = [(str(n), int(v), kl_[i]) for i, (n, v) in enumerate(tel.head(4).items())]
+                            if len(tel) > 4:
+                                delen.append(("Overig", int(tel.iloc[4:].sum()), kl_[4]))
+                            vs_card("Waar komen je leads vandaan?", vs_stack_html(delen))
+                        else:
+                            vs_card("Waar komen je leads vandaan?", '<div class="vs-muted">Nog geen gegevens.</div>')
+                    dagen = [(_pd.Timestamp.now(tz="Europe/Amsterdam").normalize() - _pd.Timedelta(days=i)) for i in range(n_dagen - 1, -1, -1)]
+                    if len(mails_p):
+                        per_dag = mails_p["lokaal"].dt.normalize().value_counts()
+                        px_data = [(d.strftime("%d-%m"), int(per_dag.get(d, 0))) for d in dagen]
+                    else:
+                        px_data = [(d.strftime("%d-%m"), 0) for d in dagen]
+                    vs_card("Elke dag gemaild", vs_pixels_html(px_data) if any(x[1] for x in px_data)
+                            else '<div class="vs-muted">Nog geen mails verstuurd in deze periode.</div>')
+                    if len(mails_p) >= 3:
+                        grid = [[0] * 24 for _ in range(7)]
+                        for tt in mails_p["lokaal"]:
+                            grid[tt.weekday()][tt.hour] += 1
+                        gebruikt = [tt.hour for tt in mails_p["lokaal"]]
+                        uren = list(range(min(7, min(gebruikt)), max(20, max(gebruikt)) + 1))
+                        vs_card("Wanneer mail je?", vs_heat_html(grid, uren), "Hoe lichter, hoe drukker.")
+                with rechts:
+                    if not len(opvolg):
+                        vs_card("🔥 Vandaag opvolgen", '<div class="vs-muted">Niets om vandaag op te volgen.</div>')
+                    else:
+                        st.markdown('<div class="vs-card" style="margin-bottom:0"><h4 style="margin:0">🔥 Vandaag opvolgen</h4></div>', unsafe_allow_html=True)
+                        st.dataframe(
+                            opvolg[["company_name", "status", "next_action_date"]]
+                            .rename(columns={"company_name": "Bedrijf", "status": "Status", "next_action_date": "Datum"}),
+                            use_container_width=True, hide_index=True)
+                    naam_van = dict(zip(cdf["id"], cdf["company_name"]))
+                    ikoon = {"Mail verstuurd": ("✉", "#38bdf8"), "Antwoord ontvangen": ("↩", "#4ade80"), "Bounce": ("!", "#f87171"),
+                             "Lead opgeslagen": ("+", "#c4b5fd"), "Status gewijzigd": ("●", "#FFB547"),
+                             "Contactpersoon gevonden": ("@", "#f0abfc"), "Reeks goedgekeurd": ("✓", "#4ade80")}
+                    ev = []
+                    if len(adf):
+                        for _, r in adf.head(6).iterrows():
+                            g, k = ikoon.get(r["type"], ("•", "#c4b5fd"))
+                            wie = naam_van.get(r.get("lead_id"), "")
+                            ev.append((g, k, f"{r['type']}" + (f": {wie}" if wie else ""), tijd_geleden(r["t"])))
+                    vs_card("Net gebeurd", vs_events_html(ev) if ev else
+                            '<div class="vs-muted">Nog niets bijzonders. Zodra je mailt of een antwoord krijgt, zie je het hier.</div>')
 
                 st.divider()
                 st.markdown("### Alle leads")
@@ -1852,9 +2162,8 @@ with tab_out:
     else:
         from datetime import date as _dt, datetime as _datetime
         cl = st.session_state["sb_client"]; uid = st.session_state["sb_user"]
-        st.header("📤 Outbox & antwoorden")
-        st.caption("Niets gaat de deur uit zonder jouw goedkeuring. Verzenden gebeurt alleen terwijl deze app "
-                   "open staat: klik elke dag op **Verstuur nu** voor wat vandaag aan de beurt is.")
+        st.caption("Verzenden gebeurt alleen terwijl deze app open staat: klik elke dag op **Verstuur nu** "
+                   "voor wat vandaag aan de beurt is.")
         try:
             ob = ob_load(cl, uid); alle_leads = crm_load(cl, uid)
         except Exception as e:
@@ -1876,11 +2185,16 @@ with tab_out:
         wacht = [o for o in ob if o["status"] == "pending_review"]
         goed = [o for o in ob if o["status"] == "approved"]
         due = [o for o in goed if (o.get("scheduled_for") or "") <= vandaag]
-        m = st.columns(4)
-        m[0].metric("Wacht op jouw akkoord", len(wacht))
-        m[1].metric("Goedgekeurd", len(goed))
-        m[2].metric("Vandaag aan de beurt", len(due))
-        m[3].metric("Verstuurd", sum(1 for o in ob if o["status"] == "sent"))
+        _verstuurd = sum(1 for o in ob if o["status"] == "sent")
+        vs_insight("Outbox",
+                   (f"{len(wacht)} mail{'s' if len(wacht) != 1 else ''} wacht{'en' if len(wacht) != 1 else ''} op jouw akkoord."
+                    if wacht else (f"{len(due)} mail{'s' if len(due) != 1 else ''} vandaag klaar om te versturen." if due
+                                   else "Alles is afgehandeld.")),
+                   "Niets gaat de deur uit zonder jouw goedkeuring.")
+        vs_kpis([("Wacht op jouw akkoord", len(wacht), "lezen en goedkeuren", "amber" if wacht else ""),
+                 ("Goedgekeurd", len(goed), "staat klaar"),
+                 ("Vandaag aan de beurt", len(due), "kan nu verstuurd worden"),
+                 ("Verstuurd", _verstuurd, "totaal")])
 
         # ---------------- 1. Goedkeuren
         st.divider()
