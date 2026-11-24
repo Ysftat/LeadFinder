@@ -37,6 +37,14 @@ except Exception:
     SP = None
     SP_OK = False
 
+# Campagnes met hoofdgroepen en subcategorieën (campagnes.py moet naast app.py staan)
+try:
+    import campagnes as CP
+    CP_OK = True
+except Exception:
+    CP = None
+    CP_OK = False
+
 # ------------------------------------------------------------------ CRM (Supabase, optioneel)
 try:
     from supabase import create_client as _create_client
@@ -422,6 +430,8 @@ LABEL_TO_SEG = {}
 for _p in PRESETS.values():
     for _osmval, (_label, _seg) in _p["typemap"].items():
         LABEL_TO_SEG[_label] = _seg
+if CP_OK:
+    LABEL_TO_SEG.update(CP.label_naar_segment())
 
 LINKS = ("\u2022 Website: https://www.voicestamp.nl\n"
          "\u2022 Hoe het werkt: https://www.voicestamp.nl/how-it-works\n"
@@ -655,6 +665,24 @@ DEFAULT_OPENER = {
  "winkel": "Tijdens het bekijken van jullie website viel me op hoeveel verhaal er in jullie producten zit.",
  "bloemist": "Tijdens het bekijken van jullie website viel me op hoeveel gevoel jullie in jullie boeketten leggen.",
 }
+if CP_OK:
+    _OPENERS_NIEUW = {
+        "zorg": "Tijdens het bekijken van jullie website viel me op hoeveel aandacht jullie besteden aan een goede uitleg voor patiënten.",
+        "wellness": "Tijdens het bekijken van jullie website viel me op hoeveel rust en aandacht jullie plek uitstraalt.",
+        "vastgoed": "Tijdens het bekijken van jullie website viel me op hoeveel aandacht jullie besteden aan wonen en de mensen die er wonen.",
+        "werkgever": "Tijdens het bekijken van jullie website viel me op hoeveel aandacht jullie besteden aan jullie mensen.",
+        "evenement": "Tijdens het bekijken van jullie website viel me op hoeveel er bij jullie te beleven valt.",
+        "entertainment": "Tijdens het bekijken van jullie website viel me op hoeveel aandacht jullie besteden aan het programma.",
+        "onderwijs": "Tijdens het bekijken van jullie website viel me op hoeveel aandacht jullie besteden aan studenten en leerlingen.",
+        "dealer": "Tijdens het bekijken van jullie website viel me op hoeveel aandacht jullie besteden aan advies en service.",
+        "vervoer": "Tijdens het bekijken van jullie website viel me op hoeveel aandacht jullie besteden aan de reiziger.",
+        "recreatie": "Tijdens het bekijken van jullie website viel me op hoeveel aandacht jullie besteden aan de omgeving en de bezoeker.",
+    }
+    for _seg, _d in CP.SEGMENTEN.items():
+        STD[_seg] = {"segwoord": _d["segwoord"], "kern": _d["kern"]}
+        SUBJECTS_STD[_seg] = _d["onderwerp"]
+        DEFAULT_OPENER[_seg] = _OPENERS_NIEUW[_seg]
+
 KEYWORDS = ("rust", "natuur", "gastvrij", "persoonlijk", "familie", "verhaal", "duurzaam",
             "welkom", "beleef", "genieten", "monument", "ambacht", "streek", "traditie",
             "avontuur", "kinderen", "dieren")
@@ -701,10 +729,7 @@ def q_build(area, keys, whole):
           else f'area["name"="{area}"]["admin_level"="4"]->.a;')
     return f'[out:json][timeout:180];{ab}({"".join(parts)});out center tags;'
 
-@st.cache_data(ttl=7 * 24 * 3600, show_spinner=False)
-def osm_cached(area, keys_items, whole):
-    keys = {k: list(v) for k, v in keys_items}
-    q = q_build(area, keys, whole)
+def _overpass_post(q):
     laatste = None
     # 2 rondes over alle servers, met een korte pauze, zodat tijdelijke 500/502-fouten worden opgevangen
     for ronde in range(2):
@@ -717,8 +742,7 @@ def osm_cached(area, keys_items, whole):
                     time.sleep(1.5)
                     continue
                 r.raise_for_status()
-                els = r.json().get("elements", [])
-                return els
+                return r.json().get("elements", [])
             except Exception as e:
                 laatste = f"{type(e).__name__} bij {urlparse(ep).netloc}"
                 time.sleep(1.0)
@@ -729,6 +753,31 @@ def osm_cached(area, keys_items, whole):
         f"Laatste melding: {laatste}. Probeer het over een paar minuten opnieuw, of kies "
         "eventueel een kleinere provincie.")
 
+@st.cache_data(ttl=7 * 24 * 3600, show_spinner=False)
+def osm_cached(area, keys_items, whole):
+    keys = {k: list(v) for k, v in keys_items}
+    return _overpass_post(q_build(area, keys, whole))
+
+@st.cache_data(ttl=7 * 24 * 3600, show_spinner=False)
+def osm_cached_cl(area, clauses, whole):
+    """Zoekopdracht voor de campagnes met subcategorieën (campagnes.py)."""
+    ab = ('area["ISO3166-1"="NL"][admin_level=2]->.a;' if whole
+          else f'area["name"="{area}"]["admin_level"="4"]->.a;')
+    q = f'[out:json][timeout:180];{ab}({CP.overpass_stukken(clauses)});out center tags;'
+    return _overpass_post(q)
+
+def _lead_uit_tags(t, label, seg):
+    email = (t.get("contact:email") or t.get("email") or "").strip().lower()
+    return {"naam": t.get("name"), "type": label, "seg": seg,
+            "plaats": (t.get("addr:city") or t.get("addr:place") or "").strip(),
+            "email": email if EMAIL_RE.fullmatch(email or "") else "",
+            "website": (t.get("contact:website") or t.get("website") or "").strip(),
+            "telefoon": (t.get("contact:phone") or t.get("phone") or "").strip(),
+            "instagram": (t.get("contact:instagram") or ""),
+            "linkedin": "", "facebook": (t.get("contact:facebook") or ""),
+            "haak": "", "heeft_app": False,
+            "bron": "OpenStreetMap", "opener": ""}
+
 def parse(els, typemap):
     out = []
     for el in els:
@@ -738,16 +787,17 @@ def parse(els, typemap):
                        if t.get(k) in typemap), None)
         if not osmval: continue
         label, seg = typemap[osmval]
-        email = (t.get("contact:email") or t.get("email") or "").strip().lower()
-        out.append({"naam": name, "type": label, "seg": seg,
-                    "plaats": (t.get("addr:city") or t.get("addr:place") or "").strip(),
-                    "email": email if EMAIL_RE.fullmatch(email or "") else "",
-                    "website": (t.get("contact:website") or t.get("website") or "").strip(),
-                    "telefoon": (t.get("contact:phone") or t.get("phone") or "").strip(),
-                    "instagram": (t.get("contact:instagram") or ""),
-                    "linkedin": "", "facebook": (t.get("contact:facebook") or ""),
-                    "haak": "", "heeft_app": False,
-                    "bron": "OpenStreetMap", "opener": ""})
+        out.append(_lead_uit_tags(t, label, seg))
+    return out
+
+def parse_subs(els, subs):
+    """Deelt elke gevonden plek in bij de eerste subcategorie waar hij bij past."""
+    out = []
+    for el in els:
+        t = el.get("tags", {})
+        if not t.get("name"): continue
+        sub = CP.deel_in(t, subs)
+        if sub: out.append(_lead_uit_tags(t, sub["label"], sub["seg"]))
     return out
 
 # ------------------------------------------------------------------ website
@@ -1136,9 +1186,13 @@ def build_csv(leads):
 def draai(preset, area, whole, scrape, mx_check, dedupe_dom, n_per_dag, max_sites,
           workers, verstuurd, brand, progress, status):
     status("OpenStreetMap ophalen ...")
-    keys_items = tuple((k, tuple(v)) for k, v in preset["keys"].items())
-    els = osm_cached(area, keys_items, whole)
-    leads = parse(els, preset["typemap"])
+    if preset.get("subs"):
+        els = osm_cached_cl(area, CP.clauses(preset["subs"]), whole)
+        leads = parse_subs(els, preset["subs"])
+    else:
+        keys_items = tuple((k, tuple(v)) for k, v in preset["keys"].items())
+        els = osm_cached(area, keys_items, whole)
+        leads = parse(els, preset["typemap"])
     seen, uniek = set(), []
     for l in leads:
         k = (l["naam"].lower(), l["plaats"].lower())
@@ -1291,6 +1345,8 @@ st.markdown("""
   [data-testid="stSidebar"] label p { font-size:13px; color:#cfc9de; }
   [data-testid="stSidebar"] .stButton > button { width:100%; }
   [data-testid="stSidebar"] hr { margin:16px 0 !important; }
+  [data-baseweb="tag"] { background:rgba(196,181,253,0.16) !important; border-radius:999px !important; }
+  [data-baseweb="tag"] span { color:#fff !important; font-weight:600; }
   /* kaarten en velden */
   [data-testid="stMetric"] { background:rgba(20,16,32,0.9); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:12px 14px; }
   [data-testid="stMetricLabel"] p { color:#8b84a3; font-size:11.5px; font-weight:700; }
@@ -1458,7 +1514,18 @@ st.markdown(
 
 with st.sidebar:
     st.header("Instellingen")
-    campagne = st.selectbox("Campagne", list(PRESETS.keys()))
+    if CP_OK:
+        groep = st.selectbox("Hoofdgroep", list(CP.CAMPAGNES.keys()))
+        _namen = [x["naam"] for x in CP.CAMPAGNES[groep]]
+        gekozen = st.multiselect("Categorieën", _namen, default=_namen,
+                                 help="Haal er weg wat je nu niet wilt. Alles tegelijk kan, het is één zoekopdracht.")
+        for _x in CP.subs_van(groep, gekozen):
+            if _x.get("let_op"):
+                st.caption(f"**{_x['naam']}:** {_x['let_op']}")
+        campagne = groep
+    else:
+        st.warning("campagnes.py ontbreekt naast app.py. Je ziet nu alleen de oude campagnes.")
+        campagne = st.selectbox("Campagne", list(PRESETS.keys()))
     heel = st.checkbox("Heel Nederland (traag, tabblad open houden)", value=False)
     provincie = st.selectbox("Provincie", PROVINCIES, index=3, disabled=heel)
     st.divider()
@@ -1580,8 +1647,15 @@ brand = {"merk": merk.strip() or "VoiceStamp", "links": links_blok, "eigen_mid":
          "eigen_body": eigen_body,
          "aanhef_modus": "algemeen" if aanhef_keuze == "Beste team" else "persoonlijk"}
 
+if start and CP_OK and not gekozen:
+    st.warning("Kies minstens één categorie in de zijbalk.")
+    start = False
+
 if start:
-    preset = PRESETS[campagne]
+    if CP_OK:
+        preset = {"subs": CP.subs_van(campagne, gekozen)}
+    else:
+        preset = PRESETS[campagne]
     verstuurd = laad_verstuurd(up.getvalue(), up.name) if up else set()
     bar = st.progress(0.0); box = st.empty(); t0 = time.time()
     try:

@@ -112,3 +112,10 @@ POP/IMAP/SMTP meer. Dan werkt versturen en inbox lezen niet, en kan dat ook je
 - De app werkt alleen terwijl je browser-tabblad open staat.
 - Zakelijk gebruik: benader relevante bedrijven, met afmeldmogelijkheid, binnen AVG en de
   Telecommunicatiewet (B2B). Verstuur gedoseerd.
+
+
+## Campagnes kiezen
+
+Links kies je eerst een **hoofdgroep** (bijvoorbeeld Zorg & welzijn) en daaronder de **categorieën** (Tandartspraktijken, Fysiotherapeuten, Huisartsen, enzovoort). Alles tegelijk zoeken kan: het is één zoekopdracht. De lijst met campagnes staat in `campagnes.py`. Zet dat bestand naast `app.py`.
+
+Een paar branches zijn lastig te vinden op de kaart (foodtrucks, natuurparken, woningcorporaties, bedrijven met onboarding). Bij die categorieën staat in de zijbalk een korte waarschuwing. Evenementen zelf (festivals, beurzen, congressen) staan niet op de kaart: de app zoekt de locaties waar ze plaatsvinden.
