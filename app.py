@@ -12,7 +12,7 @@ Lokaal: pip install streamlit requests dnspython openpyxl pandas ; streamlit run
 Online: zie LEES_MIJ_streamlit.md
 """
 
-import re, io, time, csv, hashlib
+import re, io, time, csv, hashlib, random
 from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -28,6 +28,14 @@ try:
     HAVE_DNS = True
 except Exception:
     HAVE_DNS = False
+
+# Sellbird-onderdelen (beslisser vinden, adres controleren, reeks, gate, antwoorden)
+try:
+    import sellbird_pipeline as SP
+    SP_OK = True
+except Exception:
+    SP = None
+    SP_OK = False
 
 # ------------------------------------------------------------------ CRM (Supabase, optioneel)
 try:
@@ -133,11 +141,32 @@ def crm_sent_today(client, user_id):
     except Exception:
         return 0
 
+# ---- Outbox (mailreeks per lead): helpers
+def ob_create(client, user_id, rows):
+    client.table("outbox").insert([dict(r, user_id=user_id) for r in rows]).execute()
+
+def ob_load(client, user_id):
+    r = (client.table("outbox").select("*").eq("user_id", user_id)
+         .order("scheduled_for").order("step").execute())
+    return r.data or []
+
+def ob_update(client, user_id, row_id, fields):
+    client.table("outbox").update(fields).eq("id", row_id).eq("user_id", user_id).execute()
+
+def ob_cancel_for_lead(client, user_id, lead_id, reden):
+    """Stop alle nog niet verstuurde mails van deze lead (bij antwoord, afmelding of bounce)."""
+    try:
+        (client.table("outbox").update({"status": "cancelled", "error": reden})
+         .eq("user_id", user_id).eq("lead_id", lead_id)
+         .in_("status", ["pending_review", "approved"]).execute())
+    except Exception:
+        pass
+
 # ---------------------------------------------------------------- Zoho-mail (SMTP)
 import smtplib, ssl, html as _html
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from email.utils import formataddr
+from email.utils import formataddr, make_msgid
 
 MAIL_DAG_LIMIET = 15
 
@@ -155,17 +184,32 @@ def _naar_html(tekst):
     return (f'<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;'
             f'line-height:1.5;color:#222;">{veilig}</div>')
 
-def zoho_send(host, port, user, app_pw, from_name, to_addr, subject, body):
+def zoho_send(host, port, user, app_pw, from_name, to_addr, subject, body, in_reply_to=None):
+    """Verstuurt de mail en geeft het Message-ID terug (voor het koppelen van opvolgmails)."""
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = formataddr((from_name, user))
     msg["To"] = to_addr
+    msg_id = make_msgid(domain=user.split("@")[-1])
+    msg["Message-ID"] = msg_id
+    if in_reply_to:
+        msg["In-Reply-To"] = in_reply_to
+        msg["References"] = in_reply_to
     msg.attach(MIMEText(body, "plain", "utf-8"))
     msg.attach(MIMEText(_naar_html(body), "html", "utf-8"))
     ctx = ssl.create_default_context()
-    with smtplib.SMTP_SSL(host, int(port), context=ctx, timeout=20) as s:
-        s.login(user, app_pw)
-        s.sendmail(user, [to_addr], msg.as_string())
+    try:
+        with smtplib.SMTP_SSL(host, int(port), context=ctx, timeout=20) as s:
+            s.login(user.strip(), app_pw.replace(" ", "").strip())
+            s.sendmail(user.strip(), [to_addr], msg.as_string())
+        return msg_id
+    except smtplib.SMTPAuthenticationError:
+        raise RuntimeError(
+            f"Zoho weigert de inlog op {host}. Meestal is het: (1) je gebruikt je gewone wachtwoord "
+            "in plaats van een app-wachtwoord, (2) de server klopt niet met je account (probeer "
+            "smtp.zoho.com, of smtppro.zoho.eu / smtppro.zoho.com voor een bedrijfsaccount), "
+            "(3) het app-wachtwoord is ingetrokken of verkeerd gekopieerd, of (4) SMTP staat niet "
+            "aan voor je account.")
 
 # Koppel Nederlandse (of Engelse) kolomnamen aan de CRM-velden.
 IMPORT_MAP = {
@@ -456,13 +500,14 @@ HR_SUBJECT = "Nieuwe medewerkers sneller op weg, zonder extra app"
 HR_KERN = (
     "Wat als een nieuwe medewerker de belangrijkste info niet hoeft te lezen, maar gewoon kan "
     "horen?\n\n"
-    "Een welkom van het team. Een veiligheidsinstructie bij de machine. Hoe iets op de werkvloer "
-    "werkt, precies op de plek waar het nodig is.\n\n"
+    "Een welkom van het team op de eerste dag. Uitleg bij een werkplek, precies waar iemand het "
+    "nodig heeft. Of een collega die op het juiste moment zijn kennis deelt.\n\n"
     "Met VoiceStamp scant iemand een eenvoudige stempel en hoort direct de boodschap. Geen app, "
     "geen account, geen inlog.\n\n"
     "Geen app. Geen account. Gewoon luisteren.\n\n"
-    "Een VoiceStamp kan bij een machine, in de kantine of op een introductieplek. In jullie eigen "
-    "stem, of die van een collega.\n\n"
+    "En dat is nog maar het begin. De toepassingen zijn eindeloos: overal waar kennis of een "
+    "boodschap op het juiste moment moet landen, kan een VoiceStamp staan. In jullie eigen stem, "
+    "of die van een collega.\n\n"
     "Juist bij {invalshoek_zin} scheelt dat tijd en herhaling: de uitleg staat klaar, telkens "
     "hetzelfde, ook als het druk is.")
 
@@ -855,6 +900,153 @@ def maak_mail(l, brand):
     fu3 = FOLLOWUP_3.format(aanhef=aanhef)
     return subject, body, fu2, fu3
 
+# ------------------------------------------------ Sellbird-onderdelen: beslisser, reeks, antwoorden
+def _fetch_voor_sp(base, path):
+    """Pagina ophalen met robots.txt en pauze per domein (zelfde regels als de rest van de app)."""
+    dom = urlparse(base).netloc.replace("www.", "")
+    if not _robots_ok(base, path):
+        return None
+    url = base if path == "" else f"{base}/{path}"
+    r = polite_get(url, dom, timeout=8)
+    if r is not None and r.status_code == 200 and "html" in r.headers.get("content-type", ""):
+        return r.text
+    return None
+
+def _verifier_keys():
+    try:
+        return st.secrets.get("REOON_API_KEY"), st.secrets.get("ZEROBOUNCE_API_KEY")
+    except Exception:
+        return None, None
+
+def zoek_beslisser(row, rk=None, zk=None):
+    """
+    Zoek eigenaar of manager op de eigen site van het bedrijf en bouw het bijpassende adres.
+    Geeft (velden_voor_crm of None, uitleg).
+    """
+    base = norm(row.get("website") or "")
+    if not base:
+        return None, "geen website bij deze lead"
+    res = SP.find_decision_makers(base, row.get("company_name") or "", _fetch_voor_sp)
+    upd = {}
+    hoofd = (row.get("email") or "").lower()
+    if hoofd and hoofd in res["emails"]:
+        upd["email_status"] = SP.S_PUBLISHED
+    if not res["people"]:
+        return (upd or None), f"geen eigenaar of manager gevonden ({res['pages']} pagina's gelezen)"
+    naam, rol = res["people"][0]
+    cands = SP.email_candidates(naam, res["domain"], res["emails"])
+    addr, status, why = SP.pick_contact_email(cands, set(res["emails"]), rk, zk)
+    upd.update({"contact_name": naam, "contact_role": rol,
+                "contact_email": addr, "contact_email_status": status or ""})
+    return upd, f"{naam} ({rol}): {addr or 'geen adres'} [{SP.STATUS_LABEL.get(status, status)}] - {why}"
+
+def kies_ontvanger(row, allow_risky=False):
+    """Persoonlijk adres als dat gepubliceerd of geverifieerd is, anders de gewone inbox."""
+    ok = {SP.S_PUBLISHED, SP.S_VERIFIED} | ({SP.S_RISKY} if allow_risky else set())
+    ce = (row.get("contact_email") or "").strip()
+    cs = row.get("contact_email_status") or ""
+    if ce and cs in ok and row.get("contact_name"):
+        return ce, cs, row["contact_name"].split()[0]
+    return (row.get("email") or "").strip(), (row.get("email_status") or None), ""
+
+def status_voor(lead, to):
+    to = (to or "").lower()
+    if to and to == (lead.get("contact_email") or "").lower():
+        return lead.get("contact_email_status") or None
+    return lead.get("email_status") or None
+
+def volledige_tekst(body, sig, optout=""):
+    t = body.rstrip() + "\n" + (sig or "")
+    if (optout or "").strip():
+        t = t.rstrip() + "\n\n" + optout.strip()
+    return t
+
+def maak_reeks(row, brand, start, allow_risky=False, onbekend_seg=None):
+    """Mail 1, 2 en 3 voor een lead, met geplande datums. Geeft (items, reden_als_het_niet_lukt)."""
+    to, st_, vn = kies_ontvanger(row, allow_risky)
+    if not to:
+        return None, "geen e-mailadres"
+    seg = LABEL_TO_SEG.get(str(row.get("segment") or ""), onbekend_seg)
+    if not seg:
+        return None, f"type '{row.get('segment') or '-'}' niet herkend"
+    lead_obj = {"seg": seg, "naam": row.get("company_name") or "", "plaats": "", "_vn": vn,
+                "haak": row.get("hook") or "", "heeft_app": False, "email": to}
+    subj, m1, m2, m3 = maak_mail(lead_obj, brand)
+    data_ = SP.plan_dates(start)
+    return [{"lead_id": row["id"], "step": 1, "to_email": to, "subject": subj, "body": m1,
+             "status": "pending_review", "scheduled_for": data_[0].isoformat()},
+            {"lead_id": row["id"], "step": 2, "to_email": to, "subject": "Re: " + subj, "body": m2,
+             "status": "pending_review", "scheduled_for": data_[1].isoformat()},
+            {"lead_id": row["id"], "step": 3, "to_email": to, "subject": "Re: " + subj, "body": m3,
+             "status": "pending_review", "scheduled_for": data_[2].isoformat()}], ""
+
+def verwerk_antwoord(cl, uid, lead, soort, nieuwe_status, onderwerp, tekst, mid=""):
+    """Zet het antwoord door naar het CRM en stopt de rest van de reeks. Geeft de nieuwe status."""
+    from datetime import date as _d
+    lid, huidig = lead["id"], (lead.get("status") or "Nieuw")
+    velden = {}
+    if nieuwe_status == "Do not contact":
+        velden = {"status": "Do not contact", "dnc_reason": "Afgemeld per mail",
+                  "next_action": "", "next_action_date": None}
+    elif nieuwe_status == "Afgewezen" and huidig != "Klant":
+        velden = {"status": "Afgewezen", "next_action": "", "next_action_date": None}
+    elif nieuwe_status == "Reactie" and huidig not in ("Klant", "Afspraak"):
+        velden = {"status": "Reactie", "next_action": "Antwoord geven",
+                  "next_action_date": _d.today().isoformat()}
+    if velden:
+        crm_update(cl, lid, uid, velden)
+    ob_cancel_for_lead(cl, uid, lid, f"gestopt: {soort}")
+    snip = re.sub(r"\s+", " ", SP.strip_quoted(tekst))[:200]
+    pre = f"[{mid}] " if mid else ""
+    crm_add_activity(cl, uid, lid, "Antwoord ontvangen", f"{pre}{soort}: {onderwerp} — {snip}")
+    return velden.get("status", huidig)
+
+def verwerk_bounce(cl, uid, lead, adres, mid=""):
+    if adres and adres.lower() == (lead.get("contact_email") or "").lower():
+        crm_update(cl, lead["id"], uid, {"contact_email_status": SP.S_INVALID})
+    else:
+        crm_update(cl, lead["id"], uid, {"email_status": SP.S_INVALID})
+    ob_cancel_for_lead(cl, uid, lead["id"], "gestopt: bounce")
+    pre = f"[{mid}] " if mid else ""
+    crm_add_activity(cl, uid, lead["id"], "Bounce", f"{pre}adres onbereikbaar: {adres}")
+
+def verwerk_inbox(cl, uid, mails, leads, eigen):
+    """Loopt de inbox door: bounce, afmelding, afwijzing of reactie, en past het CRM aan."""
+    try:
+        r = (cl.table("activities").select("description").eq("user_id", uid)
+             .in_("type", ["Antwoord ontvangen", "Bounce"])
+             .order("created_at", desc=True).limit(800).execute())
+        bekend = " ".join(x.get("description") or "" for x in (r.data or []))
+    except Exception:
+        bekend = ""
+    uit = []
+    for m in mails:
+        if m["from"] == (eigen or "").lower():
+            continue
+        mid = m["message_id"]
+        if mid and f"[{mid}]" in bekend:
+            continue
+        soort, st_, uitleg = SP.classify_reply(m["subject"], m["body"], m["from"], m["auto"], eigen)
+        if soort == "auto":
+            continue
+        if soort == "bounce":
+            adres = SP.failed_recipient(m["body"], eigen)
+            lead = SP.match_lead(adres, leads)
+            if not lead:
+                continue
+            verwerk_bounce(cl, uid, lead, adres, mid)
+            uit.append({"Bedrijf": lead.get("company_name"), "Soort": "Bounce", "Gevolg": f"{adres} ongeldig, reeks gestopt",
+                        "Onderwerp": m["subject"]})
+            continue
+        lead = SP.match_lead(m["from"], leads)
+        # alleen leads aan wie we gemaild hebben; anders is het geen antwoord maar gewone post
+        if not lead or (not lead.get("last_mailed") and (lead.get("status") or "Nieuw") == "Nieuw"):
+            continue
+        nieuw = verwerk_antwoord(cl, uid, lead, soort, st_, m["subject"], m["body"], mid)
+        uit.append({"Bedrijf": lead.get("company_name"), "Soort": uitleg, "Gevolg": f"status: {nieuw}, reeks gestopt",
+                    "Onderwerp": m["subject"]})
+    return uit
+
 def score_lead(l):
     s = 0
     if l["email"]: s += 40
@@ -1172,8 +1364,8 @@ if start:
     except Exception as e:
         box.error(f"Er ging iets mis: {e}")
 
-tab_res, tab_crm, tab_upload = st.tabs(
-    ["📋 Resultaten & mails", "📇 Mijn CRM", "📄 Bestand uploaden (HR)"])
+tab_res, tab_crm, tab_out, tab_upload = st.tabs(
+    ["📋 Resultaten & mails", "📇 Mijn CRM", "📤 Outbox & antwoorden", "📄 Bestand uploaden (HR)"])
 
 with tab_res:
     if st.session_state.get("leads"):
@@ -1359,12 +1551,21 @@ with tab_crm:
                 for kol, leeg in [("note", ""), ("status", "Nieuw"), ("segment", ""),
                                   ("company_name", ""), ("email", ""), ("score", 0),
                                   ("next_action", ""), ("next_action_date", None), ("dnc_reason", ""),
-                                  ("last_mailed", None)]:
+                                  ("last_mailed", None), ("email_status", ""), ("contact_name", ""),
+                                  ("contact_role", ""), ("contact_email", ""),
+                                  ("contact_email_status", "")]:
                     if kol not in cdf.columns:
                         cdf[kol] = leeg
                 cdf["note"] = cdf["note"].fillna("")
                 cdf["next_action"] = cdf["next_action"].fillna("")
                 cdf["dnc_reason"] = cdf["dnc_reason"].fillna("")
+                for _k in ("email_status", "contact_name", "contact_role", "contact_email",
+                           "contact_email_status"):
+                    cdf[_k] = cdf[_k].fillna("")
+                # Supabase geeft datums als tekst; de tabel wil echte datums (anders een foutmelding)
+                for _k in ("next_action_date", "last_mailed"):
+                    cdf[_k] = pd.to_datetime(cdf[_k], errors="coerce").dt.date
+                    cdf[_k] = cdf[_k].where(cdf[_k].notna(), None)
 
                 # ---- Dashboard ----
                 vandaag = _date.today().isoformat()
@@ -1395,13 +1596,19 @@ with tab_crm:
                 toon = cdf[cdf["status"].isin(stat)] if stat else cdf
                 st.caption(f"{len(toon)} van {len(cdf)} leads.")
                 edit = st.data_editor(
-                    toon[["company_name", "segment", "email", "score", "status",
+                    toon[["company_name", "segment", "email", "contact_name", "contact_email",
+                          "contact_email_status", "score", "status",
                           "next_action", "next_action_date", "last_mailed", "note", "dnc_reason"]],
                     use_container_width=True, height=420, key="crm_editor",
                     column_config={
                         "company_name": st.column_config.TextColumn("Bedrijf", disabled=True),
                         "segment": st.column_config.TextColumn("Type", disabled=True),
                         "email": st.column_config.TextColumn("E-mail", disabled=True),
+                        "contact_name": st.column_config.TextColumn("Contactpersoon", disabled=True),
+                        "contact_email": st.column_config.TextColumn("Adres contactpersoon", disabled=True),
+                        "contact_email_status": st.column_config.TextColumn("Adresstatus", disabled=True,
+                            help="published = stond op hun eigen site, verified = gecontroleerd, "
+                                 "risky = onzeker, guess = gok (wordt niet gebruikt), invalid = ongeldig"),
                         "score": st.column_config.ProgressColumn("Score", min_value=0, max_value=100, format="%d"),
                         "status": st.column_config.SelectboxColumn("Status", options=STATUS_OPTIES),
                         "next_action": st.column_config.TextColumn("Volgende actie"),
@@ -1433,6 +1640,107 @@ with tab_crm:
                         st.warning(f"Opgeslagen, maar {fouten} rijen gaven een fout.")
                     else:
                         st.success("Wijzigingen opgeslagen.")
+
+                # ---- Beslisser vinden + mailreeks klaarzetten ----
+                st.divider()
+                st.markdown("### 🎯 Beslisser vinden & mailreeks klaarzetten")
+                if not SP_OK:
+                    st.warning("Zet **sellbird_pipeline.py** in dezelfde map als app.py om dit te gebruiken.")
+                else:
+                    st.caption(
+                        "**Stap 1:** de app leest de eigen teampagina's van het bedrijf (geen LinkedIn) en zoekt "
+                        "een eigenaar of manager. **Stap 2:** zij bouwt het adres van die persoon en markeert "
+                        "het: published, verified, risky of guess. Een gok wordt nooit gebruikt. "
+                        "**Stap 3:** zet een reeks van 3 mails klaar in je Outbox, nog niets verstuurd.")
+                    _rk, _zk = _verifier_keys()
+                    if not (_rk or _zk):
+                        st.info("Geen verificatiedienst gekoppeld (REOON_API_KEY of ZEROBOUNCE_API_KEY in je secrets). "
+                                "Dan blijft een zelf gebouwd adres een gok en wordt het niet gebruikt; "
+                                "alleen adressen die op hun eigen site staan tellen. "
+                                "Reoon heeft een gratis pakket.")
+                    recs = {r["id"]: r for r in data}
+                    modus = st.radio("Welke leads?", ["Gekozen leads", "Eerste 25 zonder contactpersoon"],
+                                     horizontal=True, key="sp_modus")
+                    if modus == "Gekozen leads":
+                        sel_idx = st.multiselect(
+                            "Kies leads (max 25 per keer)", options=list(cdf.index), key="sp_sel",
+                            format_func=lambda i: f"{cdf.loc[i,'company_name']} ({cdf.loc[i,'email']})")
+                    else:
+                        sel_idx = [i for i in cdf.index
+                                   if not cdf.loc[i, "contact_name"] and cdf.loc[i, "status"] == "Nieuw"
+                                   and str(cdf.loc[i].get("website") or "").strip()][:25]
+                        st.caption(f"{len(sel_idx)} leads geselecteerd.")
+                    sel_rows = [recs[cdf.loc[i, "id"]] for i in sel_idx[:25] if cdf.loc[i, "id"] in recs]
+
+                    if st.button("🔎 Zoek eigenaar of manager + adres", disabled=not sel_rows, key="sp_zoek"):
+                        cl = st.session_state["sb_client"]; uid = st.session_state["sb_user"]
+                        bar = st.progress(0.0); res_rows = []
+                        with ThreadPoolExecutor(max_workers=4) as ex:
+                            futs = {ex.submit(zoek_beslisser, r, _rk, _zk): r for r in sel_rows}
+                            for n, f in enumerate(as_completed(futs), 1):
+                                r = futs[f]
+                                try:
+                                    upd, uitleg = f.result()
+                                except Exception as e:
+                                    upd, uitleg = None, f"fout: {e.__class__.__name__}"
+                                if upd:
+                                    try:
+                                        crm_update(cl, r["id"], uid, upd)
+                                        if upd.get("contact_name"):
+                                            crm_add_activity(cl, uid, r["id"], "Contactpersoon gevonden", uitleg)
+                                    except Exception as e:
+                                        uitleg += f" (opslaan mislukt: {e})"
+                                res_rows.append({"Bedrijf": r.get("company_name"), "Resultaat": uitleg})
+                                bar.progress(n / len(futs))
+                        st.session_state["sp_res"] = res_rows
+                        st.rerun()
+                    if st.session_state.get("sp_res"):
+                        st.dataframe(pd.DataFrame(st.session_state["sp_res"]),
+                                     use_container_width=True, hide_index=True)
+
+                    st.markdown("#### Reeks klaarzetten")
+                    from datetime import date as _dd
+                    r1, r2 = st.columns(2)
+                    start_dat = r1.date_input("Eerste mail op", _dd.today(), key="sp_start")
+                    onbekend = r2.selectbox(
+                        "Type niet herkend? Gebruik dan de tekst van",
+                        ["(overslaan)"] + list(STD.keys()), key="sp_onbekend",
+                        help="Voorkomt dat een winkel per ongeluk de campingtekst krijgt.")
+                    st.checkbox("Risicovolle adressen toestaan (catch-all of onzeker)", key="sp_allow_risky")
+                    st.caption("Mail 2 volgt standaard 4 dagen later en mail 3 na 8 dagen, altijd op een werkdag. "
+                               "Stopt automatisch zodra iemand antwoordt of zich afmeldt.")
+                    if st.button("📤 Zet reeks klaar in Outbox", disabled=not sel_rows, key="sp_reeks"):
+                        cl = st.session_state["sb_client"]; uid = st.session_state["sb_user"]
+                        try:
+                            bestaand = {o["lead_id"] for o in ob_load(cl, uid)
+                                        if o["status"] in ("pending_review", "approved", "sent")}
+                        except Exception as e:
+                            bestaand = set()
+                            st.error(f"Outbox niet bereikbaar. Heb je de nieuwe supabase_setup.sql uitgevoerd? ({e})")
+                        nieuw_rows, overgeslagen, gemaakt = [], [], 0
+                        for r in sel_rows:
+                            if r["id"] in bestaand:
+                                overgeslagen.append(f"{r.get('company_name')}: heeft al een reeks")
+                                continue
+                            if (r.get("status") or "Nieuw") in ("Do not contact", "Afgewezen", "Klant"):
+                                overgeslagen.append(f"{r.get('company_name')}: status {r.get('status')}")
+                                continue
+                            items, why = maak_reeks(r, brand, start_dat,
+                                                    bool(st.session_state.get("sp_allow_risky")),
+                                                    None if onbekend == "(overslaan)" else onbekend)
+                            if items is None:
+                                overgeslagen.append(f"{r.get('company_name')}: {why}")
+                            else:
+                                nieuw_rows.extend(items); gemaakt += 1
+                        if nieuw_rows:
+                            try:
+                                ob_create(cl, uid, nieuw_rows)
+                                st.success(f"{gemaakt} reeksen klaargezet. Ga naar het tabblad **Outbox & antwoorden** "
+                                           "om ze te lezen en goed te keuren.")
+                            except Exception as e:
+                                st.error(f"Klaarzetten mislukt: {e}")
+                        if overgeslagen:
+                            st.warning("Overgeslagen:\n\n" + "\n".join(f"- {x}" for x in overgeslagen))
 
                 # ---- Verwijderen ----
                 st.divider()
@@ -1535,6 +1843,223 @@ with tab_crm:
                             st.markdown(f"- **{datum}**  {a.get('type','')}{oms}")
                     else:
                         st.caption("Nog geen activiteiten voor deze lead.")
+
+with tab_out:
+    if not SP_OK:
+        st.warning("Zet **sellbird_pipeline.py** in dezelfde map als app.py om de Outbox te gebruiken.")
+    elif not st.session_state.get("sb_user"):
+        st.info("Log links in bij **Account / CRM** om je Outbox te gebruiken.")
+    else:
+        from datetime import date as _dt, datetime as _datetime
+        cl = st.session_state["sb_client"]; uid = st.session_state["sb_user"]
+        st.header("📤 Outbox & antwoorden")
+        st.caption("Niets gaat de deur uit zonder jouw goedkeuring. Verzenden gebeurt alleen terwijl deze app "
+                   "open staat: klik elke dag op **Verstuur nu** voor wat vandaag aan de beurt is.")
+        try:
+            ob = ob_load(cl, uid); alle_leads = crm_load(cl, uid)
+        except Exception as e:
+            ob, alle_leads = [], []
+            st.error(f"Kon de Outbox niet laden. Heb je de nieuwe **supabase_setup.sql** uitgevoerd? ({e})")
+        leadmap = {l["id"]: l for l in alle_leads}
+        allow_risky = bool(st.session_state.get("sp_allow_risky"))
+        sig = st.session_state.get("zoho_sig", "")
+
+        oa, ob_ = st.columns([1, 3])
+        opt_aan = oa.checkbox("Afmeldregel onderaan", value=True, key="ob_optout_aan",
+                              help="Bij zakelijke mail hoort een eenvoudige afmeldmogelijkheid.")
+        opt_tekst = ob_.text_input("Tekst afmeldregel",
+                                   "Liever geen mail meer van mij? Laat het even weten, dan stop ik direct.",
+                                   key="ob_optout_tekst", disabled=not opt_aan)
+        optout = opt_tekst if opt_aan else ""
+
+        vandaag = _dt.today().isoformat()
+        wacht = [o for o in ob if o["status"] == "pending_review"]
+        goed = [o for o in ob if o["status"] == "approved"]
+        due = [o for o in goed if (o.get("scheduled_for") or "") <= vandaag]
+        m = st.columns(4)
+        m[0].metric("Wacht op jouw akkoord", len(wacht))
+        m[1].metric("Goedgekeurd", len(goed))
+        m[2].metric("Vandaag aan de beurt", len(due))
+        m[3].metric("Verstuurd", sum(1 for o in ob if o["status"] == "sent"))
+
+        # ---------------- 1. Goedkeuren
+        st.divider()
+        st.markdown("### 1. Lezen en goedkeuren")
+        if not wacht:
+            st.caption("Niets dat wacht. Zet een reeks klaar bij **Mijn CRM → Beslisser vinden & mailreeks klaarzetten**.")
+        groepen = {}
+        for o in wacht:
+            groepen.setdefault(o["lead_id"], []).append(o)
+        for lid, items in list(groepen.items())[:25]:
+            items.sort(key=lambda x: x["step"])
+            lead = leadmap.get(lid, {})
+            to = items[0]["to_email"]
+            stt = status_voor(lead, to)
+            with st.expander(f"{lead.get('company_name','?')} → {to}  ({SP.STATUS_LABEL.get(stt, stt or 'niet gecontroleerd')})"):
+                waarsch_all, fouten_all, nieuwe = [], [], []
+                for it in items:
+                    st.markdown(f"**Mail {it['step']}** — gepland op {it['scheduled_for']}")
+                    subj = st.text_input("Onderwerp", it["subject"], key=f"obs_{it['id']}")
+                    body = st.text_area("Tekst", it["body"], height=200, key=f"obb_{it['id']}")
+                    f_, w_ = SP.gate({"to_email": to, "subject": subj, "body": body, "step": it["step"]},
+                                     lead.get("status") or "Nieuw", stt, allow_risky, mx_check=False,
+                                     full_text=volledige_tekst(body, sig, optout))
+                    if stt is None:
+                        w_.append("Dit adres is niet gecontroleerd (geimporteerd). De MX-controle gebeurt bij verzenden.")
+                    fouten_all += [f"Mail {it['step']}: {x}" for x in f_]
+                    waarsch_all += [f"Mail {it['step']}: {x}" for x in w_]
+                    nieuwe.append((it, subj, body))
+                for x in fouten_all:
+                    st.error(x)
+                for x in waarsch_all:
+                    st.warning(x)
+                if st.checkbox("Toon mail 1 met handtekening", key=f"ob_prev_{lid}"):
+                    st.text(volledige_tekst(nieuwe[0][2], sig, optout))
+                b1, b2 = st.columns(2)
+                if b1.button("✅ Opslaan en hele reeks goedkeuren", key=f"ob_ok_{lid}",
+                             type="primary", disabled=bool(fouten_all)):
+                    slecht = []
+                    for it, subj, body in nieuwe:
+                        f2, _ = SP.gate({"to_email": to, "subject": subj, "body": body, "step": it["step"]},
+                                        lead.get("status") or "Nieuw", stt, allow_risky, mx_check=True)
+                        slecht += f2
+                    if slecht:
+                        st.error("Niet goedgekeurd: " + " ".join(sorted(set(slecht))))
+                    else:
+                        for it, subj, body in nieuwe:
+                            ob_update(cl, uid, it["id"], {"status": "approved", "subject": subj, "body": body})
+                        crm_add_activity(cl, uid, lid, "Reeks goedgekeurd", f"{len(nieuwe)} mails gepland")
+                        st.rerun()
+                if b2.button("❌ Afwijzen", key=f"ob_no_{lid}"):
+                    for it, subj, body in nieuwe:
+                        ob_update(cl, uid, it["id"], {"status": "rejected"})
+                    st.rerun()
+        if len(groepen) > 25:
+            st.caption(f"Nog {len(groepen)-25} reeksen. Keur eerst deze goed of af.")
+
+        # ---------------- 2. Versturen
+        st.divider()
+        st.markdown("### 2. Versturen")
+        if not st.session_state.get("zoho_user"):
+            st.caption("Log links in bij **Mailen (Zoho)** om te kunnen versturen.")
+        else:
+            rest = max(MAIL_DAG_LIMIET - crm_sent_today(cl, uid), 0)
+            st.caption(f"Vandaag aan de beurt: **{len(due)}** mails. Je hebt nog **{rest}** van {MAIL_DAG_LIMIET} over vandaag.")
+            pauze = st.slider("Pauze tussen mails (seconden)", 5, 60, 25, key="ob_pauze",
+                              help="Een korte, wisselende pauze oogt natuurlijker dan alles tegelijk.")
+            if st.button(f"✉️ Verstuur nu (max {rest})", disabled=not (due and rest), type="primary", key="ob_send"):
+                verstuurd = 0; log = []
+                due_sorted = sorted(due, key=lambda x: (x["scheduled_for"] or "", x["step"]))
+                with st.status("Bezig met versturen...", expanded=True) as stat:
+                    for it in due_sorted:
+                        if verstuurd >= rest:
+                            break
+                        lead = leadmap.get(it["lead_id"], {})
+                        sib = [x for x in ob if x["lead_id"] == it["lead_id"]]
+                        naam = lead.get("company_name", "?")
+                        # reeks in volgorde en niet twee mails kort na elkaar
+                        if it["step"] > 1 and not any(x["step"] == it["step"] - 1 and x["status"] == "sent" for x in sib):
+                            log.append(f"{naam}: mail {it['step']} wacht tot mail {it['step']-1} verstuurd is"); continue
+                        recent = [x for x in sib if x["status"] == "sent" and (x.get("sent_at") or "")[:10] >=
+                                  (_dt.today().fromordinal(_dt.today().toordinal() - 3)).isoformat()]
+                        if recent:
+                            log.append(f"{naam}: minder dan 3 dagen geleden gemaild, wacht"); continue
+                        stt = status_voor(lead, it["to_email"])
+                        f_, _w = SP.gate(it, lead.get("status") or "Nieuw", stt, allow_risky, mx_check=True)
+                        if f_:
+                            stop = (lead.get("status") or "Nieuw") in ("Do not contact", "Afgewezen", "Reactie", "Afspraak", "Klant")
+                            ob_update(cl, uid, it["id"], {"status": "cancelled" if stop else "pending_review",
+                                                          "error": " ".join(f_)})
+                            log.append(f"{naam}: niet verstuurd ({' '.join(f_)})"); continue
+                        mid1 = next((x.get("message_id") for x in sib if x["step"] == 1 and x.get("message_id")), None)
+                        try:
+                            if verstuurd:
+                                time.sleep(random.randint(max(pauze - 10, 3), pauze + 10))
+                            mid = zoho_send(st.session_state["zoho_host"], 465, st.session_state["zoho_user"],
+                                            st.session_state["zoho_pw"],
+                                            st.session_state.get("zoho_from", st.session_state["zoho_user"]),
+                                            it["to_email"], it["subject"],
+                                            volledige_tekst(it["body"], sig, optout),
+                                            in_reply_to=mid1 if it["step"] > 1 else None)
+                        except Exception as e:
+                            ob_update(cl, uid, it["id"], {"error": str(e)})
+                            log.append(f"{naam}: versturen mislukt ({e})"); stat.update(label="Gestopt door een fout"); break
+                        nu = _dt.today().isoformat()
+                        ob_update(cl, uid, it["id"], {"status": "sent", "message_id": mid, "error": None,
+                                                      "sent_at": _datetime.now().isoformat()})
+                        veld = {"last_mailed": nu}
+                        if (lead.get("status") or "Nieuw") == "Nieuw":
+                            veld["status"] = "Gemaild"
+                        volg = next((x for x in sib if x["step"] == it["step"] + 1 and x["status"] == "approved"), None)
+                        if volg:
+                            veld["next_action"] = f"Mail {it['step']+1} gepland"
+                            veld["next_action_date"] = volg["scheduled_for"]
+                            # nooit eerder dan 4 dagen na deze mail
+                            vroegst = SP.volgende_werkdag(_dt.fromordinal(_dt.today().toordinal() + 4)).isoformat()
+                            if (volg["scheduled_for"] or "") < vroegst:
+                                ob_update(cl, uid, volg["id"], {"scheduled_for": vroegst})
+                                veld["next_action_date"] = vroegst
+                        crm_update(cl, lead["id"], uid, veld)
+                        crm_add_activity(cl, uid, lead["id"], "Mail verstuurd", f"Mail {it['step']}: {it['subject']}")
+                        verstuurd += 1
+                        st.write(f"✅ {naam}: mail {it['step']} verstuurd")
+                    stat.update(label=f"{verstuurd} verstuurd", state="complete")
+                st.session_state["ob_log"] = log
+                st.session_state["ob_verstuurd"] = verstuurd
+                time.sleep(1); st.rerun()
+            if "ob_verstuurd" in st.session_state:
+                st.success(f"{st.session_state.pop('ob_verstuurd')} mails verstuurd.")
+            for x in st.session_state.pop("ob_log", []):
+                st.warning(x)
+
+        # ---------------- 3. Planning
+        if ob:
+            with st.expander("📅 Planning en geschiedenis"):
+                pl = pd.DataFrame([{"Bedrijf": leadmap.get(o["lead_id"], {}).get("company_name", "?"),
+                                    "Mail": o["step"], "Naar": o["to_email"], "Status": o["status"],
+                                    "Gepland": o["scheduled_for"], "Opmerking": o.get("error") or ""}
+                                   for o in ob])
+                st.dataframe(pl, use_container_width=True, hide_index=True)
+
+        # ---------------- 4. Antwoorden
+        st.divider()
+        st.markdown("### 3. Antwoorden verwerken")
+        st.caption("Een antwoord, afmelding of bounce zet de lead op de juiste status en stopt de rest van de reeks. "
+                   "Een antwoord van iemand anders bij hetzelfde bedrijf telt ook.")
+        if st.session_state.get("zoho_user"):
+            dagen = st.selectbox("Kijk terug", [3, 7, 14, 30], index=1, key="ob_dagen")
+            if st.button("📥 Check mijn inbox", key="ob_inbox"):
+                try:
+                    host_imap = SP.imap_host_for(st.session_state["zoho_host"])
+                    mails = SP.fetch_replies(host_imap, st.session_state["zoho_user"],
+                                             st.session_state["zoho_pw"], since_days=int(dagen))
+                    uit = verwerk_inbox(cl, uid, mails, alle_leads, st.session_state["zoho_user"])
+                    st.success(f"{len(mails)} mails gelezen, {len(uit)} daarvan gingen over je leads.")
+                    if uit:
+                        st.dataframe(pd.DataFrame(uit), use_container_width=True, hide_index=True)
+                except Exception as e:
+                    st.error(f"Inbox lezen mislukt: {e}")
+                    st.info("IMAP moet aan staan voor je account. Volgens meldingen van gebruikers heeft het gratis "
+                            "Zoho-pakket geen POP/IMAP/SMTP meer (dat zou ook inloggen via SMTP blokkeren). "
+                            "Gebruik anders hieronder de handmatige invoer.")
+        else:
+            st.caption("Log links in bij **Mailen (Zoho)** om je inbox te kunnen lezen.")
+
+        with st.expander("✍️ Antwoord handmatig verwerken (als je inbox niet te lezen is)"):
+            if alle_leads:
+                li = st.selectbox("Van welke lead?", range(len(alle_leads)),
+                                  format_func=lambda i: f"{alle_leads[i].get('company_name')} ({alle_leads[i].get('email')})",
+                                  key="man_lead")
+                m_ond = st.text_input("Onderwerp", "Re:", key="man_ond")
+                m_txt = st.text_area("Plak hier hun antwoord", height=140, key="man_txt")
+                if st.button("Verwerk dit antwoord", disabled=not m_txt.strip(), key="man_go"):
+                    soort, nw, uitleg = SP.classify_reply(m_ond, m_txt, alle_leads[li].get("email") or "")
+                    if soort == "bounce":
+                        verwerk_bounce(cl, uid, alle_leads[li], alle_leads[li].get("email") or "")
+                    elif soort != "auto":
+                        verwerk_antwoord(cl, uid, alle_leads[li], soort, nw, m_ond, m_txt)
+                    st.success(f"Herkend als: {uitleg}. " + ("Reeks gestopt." if soort != "auto" else "Niets gewijzigd."))
+                    st.rerun()
 
 with tab_upload:
     st.header("Bestand uploaden (HR / onboarding)")
