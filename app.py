@@ -37,6 +37,14 @@ except Exception:
     SP = None
     SP_OK = False
 
+# Campagnes met hoofdgroepen en subcategorieën (campagnes.py moet naast app.py staan)
+try:
+    import campagnes as CP
+    CP_OK = True
+except Exception:
+    CP = None
+    CP_OK = False
+
 # ------------------------------------------------------------------ CRM (Supabase, optioneel)
 try:
     from supabase import create_client as _create_client
@@ -422,6 +430,8 @@ LABEL_TO_SEG = {}
 for _p in PRESETS.values():
     for _osmval, (_label, _seg) in _p["typemap"].items():
         LABEL_TO_SEG[_label] = _seg
+if CP_OK:
+    LABEL_TO_SEG.update(CP.label_naar_segment())
 
 LINKS = ("\u2022 Website: https://www.voicestamp.nl\n"
          "\u2022 Hoe het werkt: https://www.voicestamp.nl/how-it-works\n"
@@ -655,6 +665,24 @@ DEFAULT_OPENER = {
  "winkel": "Tijdens het bekijken van jullie website viel me op hoeveel verhaal er in jullie producten zit.",
  "bloemist": "Tijdens het bekijken van jullie website viel me op hoeveel gevoel jullie in jullie boeketten leggen.",
 }
+if CP_OK:
+    _OPENERS_NIEUW = {
+        "zorg": "Tijdens het bekijken van jullie website viel me op hoeveel aandacht jullie besteden aan een goede uitleg voor patiënten.",
+        "wellness": "Tijdens het bekijken van jullie website viel me op hoeveel rust en aandacht jullie plek uitstraalt.",
+        "vastgoed": "Tijdens het bekijken van jullie website viel me op hoeveel aandacht jullie besteden aan wonen en de mensen die er wonen.",
+        "werkgever": "Tijdens het bekijken van jullie website viel me op hoeveel aandacht jullie besteden aan jullie mensen.",
+        "evenement": "Tijdens het bekijken van jullie website viel me op hoeveel er bij jullie te beleven valt.",
+        "entertainment": "Tijdens het bekijken van jullie website viel me op hoeveel aandacht jullie besteden aan het programma.",
+        "onderwijs": "Tijdens het bekijken van jullie website viel me op hoeveel aandacht jullie besteden aan studenten en leerlingen.",
+        "dealer": "Tijdens het bekijken van jullie website viel me op hoeveel aandacht jullie besteden aan advies en service.",
+        "vervoer": "Tijdens het bekijken van jullie website viel me op hoeveel aandacht jullie besteden aan de reiziger.",
+        "recreatie": "Tijdens het bekijken van jullie website viel me op hoeveel aandacht jullie besteden aan de omgeving en de bezoeker.",
+    }
+    for _seg, _d in CP.SEGMENTEN.items():
+        STD[_seg] = {"segwoord": _d["segwoord"], "kern": _d["kern"]}
+        SUBJECTS_STD[_seg] = _d["onderwerp"]
+        DEFAULT_OPENER[_seg] = _OPENERS_NIEUW[_seg]
+
 KEYWORDS = ("rust", "natuur", "gastvrij", "persoonlijk", "familie", "verhaal", "duurzaam",
             "welkom", "beleef", "genieten", "monument", "ambacht", "streek", "traditie",
             "avontuur", "kinderen", "dieren")
@@ -701,10 +729,7 @@ def q_build(area, keys, whole):
           else f'area["name"="{area}"]["admin_level"="4"]->.a;')
     return f'[out:json][timeout:180];{ab}({"".join(parts)});out center tags;'
 
-@st.cache_data(ttl=7 * 24 * 3600, show_spinner=False)
-def osm_cached(area, keys_items, whole):
-    keys = {k: list(v) for k, v in keys_items}
-    q = q_build(area, keys, whole)
+def _overpass_post(q):
     laatste = None
     # 2 rondes over alle servers, met een korte pauze, zodat tijdelijke 500/502-fouten worden opgevangen
     for ronde in range(2):
@@ -717,8 +742,7 @@ def osm_cached(area, keys_items, whole):
                     time.sleep(1.5)
                     continue
                 r.raise_for_status()
-                els = r.json().get("elements", [])
-                return els
+                return r.json().get("elements", [])
             except Exception as e:
                 laatste = f"{type(e).__name__} bij {urlparse(ep).netloc}"
                 time.sleep(1.0)
@@ -729,6 +753,31 @@ def osm_cached(area, keys_items, whole):
         f"Laatste melding: {laatste}. Probeer het over een paar minuten opnieuw, of kies "
         "eventueel een kleinere provincie.")
 
+@st.cache_data(ttl=7 * 24 * 3600, show_spinner=False)
+def osm_cached(area, keys_items, whole):
+    keys = {k: list(v) for k, v in keys_items}
+    return _overpass_post(q_build(area, keys, whole))
+
+@st.cache_data(ttl=7 * 24 * 3600, show_spinner=False)
+def osm_cached_cl(area, clauses, whole):
+    """Zoekopdracht voor de campagnes met subcategorieën (campagnes.py)."""
+    ab = ('area["ISO3166-1"="NL"][admin_level=2]->.a;' if whole
+          else f'area["name"="{area}"]["admin_level"="4"]->.a;')
+    q = f'[out:json][timeout:180];{ab}({CP.overpass_stukken(clauses)});out center tags;'
+    return _overpass_post(q)
+
+def _lead_uit_tags(t, label, seg):
+    email = (t.get("contact:email") or t.get("email") or "").strip().lower()
+    return {"naam": t.get("name"), "type": label, "seg": seg,
+            "plaats": (t.get("addr:city") or t.get("addr:place") or "").strip(),
+            "email": email if EMAIL_RE.fullmatch(email or "") else "",
+            "website": (t.get("contact:website") or t.get("website") or "").strip(),
+            "telefoon": (t.get("contact:phone") or t.get("phone") or "").strip(),
+            "instagram": (t.get("contact:instagram") or ""),
+            "linkedin": "", "facebook": (t.get("contact:facebook") or ""),
+            "haak": "", "heeft_app": False,
+            "bron": "OpenStreetMap", "opener": ""}
+
 def parse(els, typemap):
     out = []
     for el in els:
@@ -738,16 +787,17 @@ def parse(els, typemap):
                        if t.get(k) in typemap), None)
         if not osmval: continue
         label, seg = typemap[osmval]
-        email = (t.get("contact:email") or t.get("email") or "").strip().lower()
-        out.append({"naam": name, "type": label, "seg": seg,
-                    "plaats": (t.get("addr:city") or t.get("addr:place") or "").strip(),
-                    "email": email if EMAIL_RE.fullmatch(email or "") else "",
-                    "website": (t.get("contact:website") or t.get("website") or "").strip(),
-                    "telefoon": (t.get("contact:phone") or t.get("phone") or "").strip(),
-                    "instagram": (t.get("contact:instagram") or ""),
-                    "linkedin": "", "facebook": (t.get("contact:facebook") or ""),
-                    "haak": "", "heeft_app": False,
-                    "bron": "OpenStreetMap", "opener": ""})
+        out.append(_lead_uit_tags(t, label, seg))
+    return out
+
+def parse_subs(els, subs):
+    """Deelt elke gevonden plek in bij de eerste subcategorie waar hij bij past."""
+    out = []
+    for el in els:
+        t = el.get("tags", {})
+        if not t.get("name"): continue
+        sub = CP.deel_in(t, subs)
+        if sub: out.append(_lead_uit_tags(t, sub["label"], sub["seg"]))
     return out
 
 # ------------------------------------------------------------------ website
@@ -955,6 +1005,48 @@ def status_voor(lead, to):
         return lead.get("contact_email_status") or None
     return lead.get("email_status") or None
 
+def auto_dagbatch(cl, uid, rows, n, brand, rk, zk, start, bestaand_ids, voortgang=None):
+    """
+    Kiest zelf de beste leads: status Nieuw, nog geen reeks, hoogste score eerst. Zoekt voor de beste
+    kandidaten de eigenaar of manager, bouwt de reeksen en zet ze klaar voor goedkeuring.
+    Geeft (aantal_reeksen, nieuwe_outbox_rijen, logregels).
+    """
+    log = []
+    kandidaten = [r for r in rows
+                  if (r.get("status") or "Nieuw") == "Nieuw" and r["id"] not in bestaand_ids
+                  and ((r.get("email") or "").strip() or (r.get("website") or "").strip())]
+    kandidaten.sort(key=lambda r: -(r.get("score") or 0))
+    pool = kandidaten[: max(n * 2, n + 5)]            # iets meer dan nodig: niet elke lead levert een reeks op
+    te_zoeken = [r for r in pool if not r.get("contact_name") and (r.get("website") or "").strip() and SP_OK]
+    if te_zoeken:
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            futs = {ex.submit(zoek_beslisser, r, rk, zk): r for r in te_zoeken}
+            for k, f in enumerate(as_completed(futs), 1):
+                r = futs[f]
+                try:
+                    upd, uitleg = f.result()
+                except Exception:
+                    upd, uitleg = None, "zoeken mislukt"
+                if upd:
+                    r.update(upd)
+                    try:
+                        crm_update(cl, r["id"], uid, upd)
+                        if upd.get("contact_name"):
+                            crm_add_activity(cl, uid, r["id"], "Contactpersoon gevonden", uitleg)
+                    except Exception:
+                        pass
+                if voortgang: voortgang(k / len(futs))
+    nieuw_rows, gemaakt = [], 0
+    for r in pool:
+        if gemaakt >= n:
+            break
+        items, why = maak_reeks(r, brand, start, False, None)
+        if items is None:
+            log.append(f"{r.get('company_name')}: overgeslagen ({why})")
+            continue
+        nieuw_rows.extend(items); gemaakt += 1
+    return gemaakt, nieuw_rows, log
+
 def volledige_tekst(body, sig, optout=""):
     t = body.rstrip() + "\n" + (sig or "")
     if (optout or "").strip():
@@ -1136,9 +1228,13 @@ def build_csv(leads):
 def draai(preset, area, whole, scrape, mx_check, dedupe_dom, n_per_dag, max_sites,
           workers, verstuurd, brand, progress, status):
     status("OpenStreetMap ophalen ...")
-    keys_items = tuple((k, tuple(v)) for k, v in preset["keys"].items())
-    els = osm_cached(area, keys_items, whole)
-    leads = parse(els, preset["typemap"])
+    if preset.get("subs"):
+        els = osm_cached_cl(area, CP.clauses(preset["subs"]), whole)
+        leads = parse_subs(els, preset["subs"])
+    else:
+        keys_items = tuple((k, tuple(v)) for k, v in preset["keys"].items())
+        els = osm_cached(area, keys_items, whole)
+        leads = parse(els, preset["typemap"])
     seen, uniek = set(), []
     for l in leads:
         k = (l["naam"].lower(), l["plaats"].lower())
@@ -1291,6 +1387,8 @@ st.markdown("""
   [data-testid="stSidebar"] label p { font-size:13px; color:#cfc9de; }
   [data-testid="stSidebar"] .stButton > button { width:100%; }
   [data-testid="stSidebar"] hr { margin:16px 0 !important; }
+  [data-baseweb="tag"] { background:rgba(196,181,253,0.16) !important; border-radius:999px !important; }
+  [data-baseweb="tag"] span { color:#fff !important; font-weight:600; }
   /* kaarten en velden */
   [data-testid="stMetric"] { background:rgba(20,16,32,0.9); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:12px 14px; }
   [data-testid="stMetricLabel"] p { color:#8b84a3; font-size:11.5px; font-weight:700; }
@@ -1437,7 +1535,7 @@ def tijd_geleden(dt):
 def crm_recent_activities(client, user_id, days=90):
     try:
         from datetime import datetime as _dtm, timedelta as _td
-        sinds = (_dtm.utcnow() - _td(days=days)).isoformat()
+        sinds = (_dtm.now(__import__("datetime").timezone.utc).replace(tzinfo=None) - _td(days=days)).isoformat()
         r = (client.table("activities").select("*").eq("user_id", user_id)
              .gte("created_at", sinds).order("created_at", desc=True).execute())
         return r.data or []
@@ -1458,7 +1556,18 @@ st.markdown(
 
 with st.sidebar:
     st.header("Instellingen")
-    campagne = st.selectbox("Campagne", list(PRESETS.keys()))
+    if CP_OK:
+        groep = st.selectbox("Hoofdgroep", list(CP.CAMPAGNES.keys()))
+        _namen = [x["naam"] for x in CP.CAMPAGNES[groep]]
+        gekozen = st.multiselect("Categorieën", _namen, default=_namen,
+                                 help="Haal er weg wat je nu niet wilt. Alles tegelijk kan, het is één zoekopdracht.")
+        for _x in CP.subs_van(groep, gekozen):
+            if _x.get("let_op"):
+                st.caption(f"**{_x['naam']}:** {_x['let_op']}")
+        campagne = groep
+    else:
+        st.warning("campagnes.py ontbreekt naast app.py. Je ziet nu alleen de oude campagnes.")
+        campagne = st.selectbox("Campagne", list(PRESETS.keys()))
     heel = st.checkbox("Heel Nederland (traag, tabblad open houden)", value=False)
     provincie = st.selectbox("Provincie", PROVINCIES, index=3, disabled=heel)
     st.divider()
@@ -1580,8 +1689,15 @@ brand = {"merk": merk.strip() or "VoiceStamp", "links": links_blok, "eigen_mid":
          "eigen_body": eigen_body,
          "aanhef_modus": "algemeen" if aanhef_keuze == "Beste team" else "persoonlijk"}
 
+if start and CP_OK and not gekozen:
+    st.warning("Kies minstens één categorie in de zijbalk.")
+    start = False
+
 if start:
-    preset = PRESETS[campagne]
+    if CP_OK:
+        preset = {"subs": CP.subs_van(campagne, gekozen)}
+    else:
+        preset = PRESETS[campagne]
     verstuurd = laad_verstuurd(up.getvalue(), up.name) if up else set()
     bar = st.progress(0.0); box = st.empty(); t0 = time.time()
     try:
@@ -1969,6 +2085,39 @@ with tab_crm:
                                 "alleen adressen die op hun eigen site staan tellen. "
                                 "Reoon heeft een gratis pakket.")
                     recs = {r["id"]: r for r in data}
+                    st.markdown("#### ✨ Laat de app de beste leads kiezen")
+                    st.caption("Geen selectie nodig. De app pakt de leads met de hoogste score die nog niet gemaild "
+                               "zijn, zoekt de eigenaar of manager, schrijft de mails en zet alles klaar. "
+                               "Jij leest en keurt goed in het tabblad Outbox.")
+                    a1, a2 = st.columns([1, 2])
+                    n_auto = a1.number_input("Aantal leads", 1, 25, 10, key="auto_n")
+                    if a2.button("✨ Kies de beste leads en zet de mails klaar", type="primary", key="auto_go"):
+                        from datetime import date as _dd0
+                        _cl = st.session_state["sb_client"]; _uid = st.session_state["sb_user"]
+                        try:
+                            _bestaand = {o["lead_id"] for o in ob_load(_cl, _uid)
+                                         if o["status"] in ("pending_review", "approved", "sent")}
+                        except Exception as e:
+                            _bestaand = set()
+                            st.error(f"Outbox niet bereikbaar. Heb je de nieuwe supabase_setup.sql uitgevoerd? ({e})")
+                        _bar = st.progress(0.0, text="Beslissers zoeken ...")
+                        gemaakt_n, rijen_n, log_n = auto_dagbatch(
+                            _cl, _uid, [dict(r) for r in data], int(n_auto), brand, _rk, _zk,
+                            _dd0.today(), _bestaand, lambda p: _bar.progress(min(p, 1.0), text="Beslissers zoeken ..."))
+                        _bar.empty()
+                        if rijen_n:
+                            try:
+                                ob_create(_cl, _uid, rijen_n)
+                                st.success(f"{gemaakt_n} reeksen staan klaar in je Outbox. Open het tabblad "
+                                           "**Outbox & antwoorden** en keur ze goed.")
+                            except Exception as e:
+                                st.error(f"Klaarzetten mislukt: {e}")
+                        else:
+                            st.warning("Er waren geen leads om klaar te zetten. Zoek eerst nieuwe leads en sla ze op in je CRM.")
+                        if log_n:
+                            with st.expander(f"{len(log_n)} leads overgeslagen"):
+                                st.write("\n".join(f"- {x}" for x in log_n))
+                    st.markdown("#### Of kies zelf (optioneel)")
                     modus = st.radio("Welke leads?", ["Gekozen leads", "Eerste 25 zonder contactpersoon"],
                                      horizontal=True, key="sp_modus")
                     if modus == "Gekozen leads":
@@ -2204,6 +2353,36 @@ with tab_out:
         groepen = {}
         for o in wacht:
             groepen.setdefault(o["lead_id"], []).append(o)
+        if groepen:
+            if st.button(f"✅ Keur alle {len(groepen)} reeksen in één keer goed", type="primary", key="ob_ok_alle",
+                         help="Keurt alle reeksen goed waar geen fout in zit. Reeksen met een fout blijven staan."):
+                goed_n, blijft = 0, []
+                for lid_, items_ in groepen.items():
+                    items_.sort(key=lambda x: x["step"])
+                    lead_ = leadmap.get(lid_, {}); to_ = items_[0]["to_email"]; stt_ = status_voor(lead_, to_)
+                    fouten_ = []; nieuw_ = []
+                    for it_ in items_:
+                        subj_ = st.session_state.get(f"obs_{it_['id']}", it_["subject"])
+                        body_ = st.session_state.get(f"obb_{it_['id']}", it_["body"])
+                        f_, _ = SP.gate({"to_email": to_, "subject": subj_, "body": body_, "step": it_["step"]},
+                                        lead_.get("status") or "Nieuw", stt_, allow_risky, mx_check=True,
+                                        full_text=volledige_tekst(body_, sig, optout))
+                        fouten_ += f_; nieuw_.append((it_, subj_, body_))
+                    if fouten_:
+                        blijft.append(f"{lead_.get('company_name', '?')}: {' '.join(sorted(set(fouten_)))}")
+                        continue
+                    for it_, subj_, body_ in nieuw_:
+                        ob_update(cl, uid, it_["id"], {"status": "approved", "subject": subj_, "body": body_})
+                    crm_add_activity(cl, uid, lid_, "Reeks goedgekeurd", f"{len(nieuw_)} mails gepland")
+                    goed_n += 1
+                st.session_state["ob_alle_msg"] = (goed_n, blijft)
+                st.rerun()
+            if st.session_state.get("ob_alle_msg"):
+                _g, _b = st.session_state.pop("ob_alle_msg")
+                st.success(f"{_g} reeksen goedgekeurd.")
+                if _b:
+                    st.warning("Niet goedgekeurd:\n\n" + "\n".join(f"- {x}" for x in _b))
+            st.caption("Wil je eerst lezen? Open hieronder een lead. Je ziet alle 3 de mails en kunt ze aanpassen.")
         for lid, items in list(groepen.items())[:25]:
             items.sort(key=lambda x: x["step"])
             lead = leadmap.get(lid, {})
