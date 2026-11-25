@@ -119,3 +119,13 @@ POP/IMAP/SMTP meer. Dan werkt versturen en inbox lezen niet, en kan dat ook je
 Links kies je eerst een **hoofdgroep** (bijvoorbeeld Zorg & welzijn) en daaronder de **categorieën** (Tandartspraktijken, Fysiotherapeuten, Huisartsen, enzovoort). Alles tegelijk zoeken kan: het is één zoekopdracht. De lijst met campagnes staat in `campagnes.py`. Zet dat bestand naast `app.py`.
 
 Een paar branches zijn lastig te vinden op de kaart (foodtrucks, natuurparken, woningcorporaties, bedrijven met onboarding). Bij die categorieën staat in de zijbalk een korte waarschuwing. Evenementen zelf (festivals, beurzen, congressen) staan niet op de kaart: de app zoekt de locaties waar ze plaatsvinden.
+
+## Score met uitleg, kanaalkaart en Content (nieuw)
+
+**Score met uitleg.** Elke lead heeft een score en een kolom "Waarom" met de redenen (bijvoorbeeld "heeft webshop +8, keten -15"). De app kijkt op de website naar een webshop, een contactformulier en WhatsApp. Ze herkent ook ketens en schat de grootte. Dit werkt zonder betaalde diensten.
+
+**Kanalen & berichten (tab CRM).** Voor leads zonder e-mail zoekt de app de beste route: Instagram, LinkedIn, contactformulier of WhatsApp. Ze schrijft een kort voorbeeldbericht. De app stuurt niets zelf. Jij kopieert het bericht, verstuurt het en klikt op "Gedaan". De lead krijgt dan status Gemaild en een follow-up datum.
+
+**Content (nieuw tabblad).** Een wachtrij voor je eigen LinkedIn- en Instagram-posts. Kies sectoren, kanalen en aantal weken, en de app maakt een plan met concepttekst. Je plaatst zelf en vinkt af. Posten gebeurt bewust niet automatisch, want dat kan je account kosten.
+
+**Nieuwe bestanden.** Zet `app.py`, `campagnes.py`, `scoring.py`, `kanalen.py` en `content.py` in dezelfde map. Draai daarna `supabase_setup.sql` opnieuw in Supabase (versie 4). Zonder die update werkt de Content-tab niet. Daarna start je opnieuw met start.bat.
