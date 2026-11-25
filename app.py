@@ -2354,11 +2354,22 @@ with tab_out:
         for o in wacht:
             groepen.setdefault(o["lead_id"], []).append(o)
         if groepen:
-            if st.button(f"✅ Keur alle {len(groepen)} reeksen in één keer goed", type="primary", key="ob_ok_alle",
-                         help="Keurt alle reeksen goed waar geen fout in zit. Reeksen met een fout blijven staan."):
+            _ids = list(groepen.keys())
+            _naam = lambda i: f"{leadmap.get(i, {}).get('company_name', '?')} → {groepen[i][0]['to_email']}"
+            # nieuwe sleutel zodra de lijst verandert, dan staat weer alles aangevinkt
+            gekozen_ids = st.multiselect(
+                f"Selectie ({len(_ids)} reeksen klaar). Klik op het kruisje om er een weg te halen.",
+                _ids, default=_ids, format_func=_naam, key=f"ob_sel_{abs(hash(tuple(_ids)))}")
+            k1, k2, k3 = st.columns([2, 2, 3])
+            if k3.button("Alles weer selecteren", key="ob_sel_alle", help="Zet alle reeksen weer in de selectie."):
+                st.session_state.pop(f"ob_sel_{abs(hash(tuple(_ids)))}", None)
+                st.rerun()
+            if k1.button(f"✅ Keur {len(gekozen_ids)} geselecteerde goed", type="primary", key="ob_ok_alle",
+                         disabled=not gekozen_ids,
+                         help="Keurt de geselecteerde reeksen goed waar geen fout in zit. Reeksen met een fout blijven staan."):
                 goed_n, blijft = 0, []
-                for lid_, items_ in groepen.items():
-                    items_.sort(key=lambda x: x["step"])
+                for lid_ in gekozen_ids:
+                    items_ = sorted(groepen[lid_], key=lambda x: x["step"])
                     lead_ = leadmap.get(lid_, {}); to_ = items_[0]["to_email"]; stt_ = status_voor(lead_, to_)
                     fouten_ = []; nieuw_ = []
                     for it_ in items_:
@@ -2376,6 +2387,11 @@ with tab_out:
                     crm_add_activity(cl, uid, lid_, "Reeks goedgekeurd", f"{len(nieuw_)} mails gepland")
                     goed_n += 1
                 st.session_state["ob_alle_msg"] = (goed_n, blijft)
+                st.rerun()
+            if k2.button(f"❌ Wijs {len(gekozen_ids)} geselecteerde af", key="ob_no_alle", disabled=not gekozen_ids):
+                for lid_ in gekozen_ids:
+                    for it_ in groepen[lid_]:
+                        ob_update(cl, uid, it_["id"], {"status": "rejected"})
                 st.rerun()
             if st.session_state.get("ob_alle_msg"):
                 _g, _b = st.session_state.pop("ob_alle_msg")
