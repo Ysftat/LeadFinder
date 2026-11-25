@@ -102,3 +102,39 @@ create policy "ob_delete_own" on public.outbox for delete using (auth.uid() = us
 create index if not exists ob_user_idx   on public.outbox (user_id);
 create index if not exists ob_lead_idx   on public.outbox (lead_id);
 create index if not exists ob_status_idx on public.outbox (status, scheduled_for);
+
+
+-- 4) Extra kolommen bij leads (kanalen, score-uitleg, techniek) en de contentplanning
+alter table public.leads add column if not exists instagram    text;
+alter table public.leads add column if not exists linkedin     text;
+alter table public.leads add column if not exists facebook     text;
+alter table public.leads add column if not exists plaats       text;
+alter table public.leads add column if not exists score_reason text;
+alter table public.leads add column if not exists tech         text;
+alter table public.leads add column if not exists form_url     text;
+alter table public.leads add column if not exists whatsapp     text;
+
+create table if not exists public.content_posts (
+    id          uuid primary key default gen_random_uuid(),
+    user_id     uuid not null references auth.users(id) default auth.uid(),
+    gepland_op  date,
+    tijd        text,
+    kanaal      text,
+    sector      text,
+    formaat     text,
+    tekst       text,
+    beeld       text,
+    status      text not null default 'concept',  -- concept | geplaatst
+    created_at  timestamptz default now()
+);
+
+alter table public.content_posts enable row level security;
+drop policy if exists "cp_select_own" on public.content_posts;
+create policy "cp_select_own" on public.content_posts for select using (auth.uid() = user_id);
+drop policy if exists "cp_insert_own" on public.content_posts;
+create policy "cp_insert_own" on public.content_posts for insert with check (auth.uid() = user_id);
+drop policy if exists "cp_update_own" on public.content_posts;
+create policy "cp_update_own" on public.content_posts for update using (auth.uid() = user_id);
+drop policy if exists "cp_delete_own" on public.content_posts;
+create policy "cp_delete_own" on public.content_posts for delete using (auth.uid() = user_id);
+create index if not exists cp_user_idx on public.content_posts (user_id, gepland_op);

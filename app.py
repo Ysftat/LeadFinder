@@ -45,6 +45,26 @@ except Exception:
     CP = None
     CP_OK = False
 
+# Score met uitleg, kanaalkaart en contentwachtrij (losse bestanden naast app.py)
+try:
+    import scoring as SC
+    SC_OK = True
+except Exception:
+    SC = None
+    SC_OK = False
+try:
+    import kanalen as KA
+    KA_OK = True
+except Exception:
+    KA = None
+    KA_OK = False
+try:
+    import content as CO
+    CO_OK = True
+except Exception:
+    CO = None
+    CO_OK = False
+
 # ------------------------------------------------------------------ CRM (Supabase, optioneel)
 try:
     from supabase import create_client as _create_client
@@ -77,24 +97,42 @@ def crm_auth(email, password, registreren=False):
     return client, getattr(res, "user", None)
 
 def crm_save(client, user_id, leads):
-    bestaand = set()
+    bestaand_e, bestaand_n = set(), set()
     try:
-        r = client.table("leads").select("email").eq("user_id", user_id).execute()
-        bestaand = {row["email"] for row in (r.data or []) if row.get("email")}
+        r = client.table("leads").select("email,company_name").eq("user_id", user_id).execute()
+        for row in (r.data or []):
+            if row.get("email"): bestaand_e.add(row["email"])
+            else: bestaand_n.add((row.get("company_name") or "").lower())
     except Exception:
         pass
     rows = []
     for l in leads:
-        e = l.get("email")
-        if not e or e in bestaand:
-            continue
-        bestaand.add(e)
+        e = (l.get("email") or "").strip()
+        if e:
+            if e in bestaand_e: continue
+            bestaand_e.add(e)
+        else:
+            # zonder e-mail wel bewaren als er een ander kanaal is (website, social, telefoon)
+            if not (l.get("website") or l.get("instagram") or l.get("linkedin") or l.get("telefoon")): continue
+            k = (l.get("naam") or "").lower()
+            if not k or k in bestaand_n: continue
+            bestaand_n.add(k)
         rows.append({"user_id": user_id, "company_name": l["naam"], "segment": l["type"],
                      "website": l.get("website", ""), "email": e, "phone": l.get("telefoon", ""),
                      "score": l.get("_score"), "hook": l.get("haak", ""),
-                     "channel_advice": l.get("_kanaal", ""), "status": "Nieuw"})
+                     "channel_advice": l.get("_kanaal", ""), "status": "Nieuw",
+                     "_extra": {"instagram": l.get("instagram", ""), "linkedin": l.get("linkedin", ""),
+                                "facebook": l.get("facebook", ""), "plaats": l.get("plaats", ""),
+                                "score_reason": l.get("_uitleg", ""), "tech": l.get("tech", ""),
+                                "form_url": l.get("form_url", ""), "whatsapp": l.get("whatsapp", "")}})
     if rows:
-        client.table("leads").insert(rows).execute()
+        met = [{**{k: v for k, v in r.items() if k != "_extra"}, **r["_extra"]} for r in rows]
+        zonder = [{k: v for k, v in r.items() if k != "_extra"} for r in rows]
+        try:
+            client.table("leads").insert(met).execute()
+        except Exception:
+            # kolommen uit supabase_setup.sql v4 ontbreken nog: sla op zoals voorheen
+            client.table("leads").insert(zonder).execute()
     return len(rows)
 
 def crm_load(client, user_id):
@@ -137,6 +175,24 @@ def crm_lead_id_by_email(client, user_id, email):
     except Exception:
         pass
     return None
+
+def cp_load(client, user_id):
+    r = (client.table("content_posts").select("*").eq("user_id", user_id)
+         .order("gepland_op").execute())
+    return r.data or []
+
+def cp_create(client, user_id, posts):
+    rows = [{"user_id": user_id, **{k: p[k] for k in ("gepland_op", "tijd", "kanaal", "sector", "formaat",
+                                                       "tekst", "beeld", "status")}} for p in posts]
+    if rows:
+        client.table("content_posts").insert(rows).execute()
+    return len(rows)
+
+def cp_update(client, user_id, post_id, fields):
+    client.table("content_posts").update(fields).eq("id", post_id).eq("user_id", user_id).execute()
+
+def cp_delete(client, user_id, post_id):
+    client.table("content_posts").delete().eq("id", post_id).eq("user_id", user_id).execute()
 
 def crm_sent_today(client, user_id):
     """Aantal 'Mail verstuurd'-activiteiten van vandaag (voor de dagelijkse limiet)."""
@@ -857,6 +913,7 @@ def enrich_one(l):
     dom = urlparse(base).netloc.replace("www.", "")
     email = l["email"]
     sigtext = ""  # verzamelde tekst van home + over-ons voor de haak-vinder en de openingszin
+    paginas = []  # (url, html) voor de signalen (techniek, formulier, jaar, ...)
     for p in PATHS:
         url = base if p == "" else f"{base}/{p}"
         if not _robots_ok(base, p):
@@ -865,6 +922,7 @@ def enrich_one(l):
             r = polite_get(url, dom, timeout=8)
             if not r or r.status_code != 200 or "html" not in r.headers.get("content-type", ""): continue
             html = r.text
+            paginas.append((url, html[:300_000]))
             if not email:
                 c = re.findall(r"mailto:([^\"'?\s>]+)", html) + EMAIL_RE.findall(html)
                 c = [x.strip().strip(".").lower() for x in c]
@@ -883,6 +941,15 @@ def enrich_one(l):
             if email and sigtext: break
         except Exception:
             continue
+    if SC_OK and paginas:
+        try:
+            sg = SC.site_signalen(paginas)
+            l["_sig"] = sg
+            l["tech"] = ", ".join(sg["tech"] + sg["boeking"])
+            l["form_url"] = sg["formulier_url"]
+            l["whatsapp"] = sg["whatsapp"]
+        except Exception:
+            pass
     haak, heeft_app = detect_signals(sigtext)
     l["haak"] = haak
     l["heeft_app"] = heeft_app
@@ -1140,6 +1207,10 @@ def verwerk_inbox(cl, uid, mails, leads, eigen):
     return uit
 
 def score_lead(l):
+    if SC_OK:
+        sc, redenen = SC.score(l)
+        l["_uitleg"] = SC.uitleg_tekst(redenen)
+        return sc
     s = 0
     if l["email"]: s += 40
     if l.get("mx") is True: s += 10
@@ -1709,8 +1780,8 @@ if start:
     except Exception as e:
         box.error(f"Er ging iets mis: {e}")
 
-tab_res, tab_crm, tab_out, tab_upload = st.tabs(
-    ["📋 Resultaten & mails", "📇 Mijn CRM", "📤 Outbox & antwoorden", "📄 Bestand uploaden (HR)"])
+tab_res, tab_crm, tab_out, tab_content, tab_upload = st.tabs(
+    ["📋 Resultaten & mails", "📇 Mijn CRM", "📤 Outbox & antwoorden", "📅 Content", "📄 Bestand uploaden (HR)"])
 
 with tab_res:
     if st.session_state.get("leads"):
@@ -1737,7 +1808,7 @@ with tab_res:
         df = pd.DataFrame([{"Score": l.get("_score", 0), "Naam": l["naam"], "Type": l["type"],
                             "Plaats": l["plaats"], "E-mail": l["email"], "Haak": l.get("haak", ""),
                             "App?": "ja" if l.get("heeft_app") else "", "Kanaal": l.get("_kanaal", ""),
-                            "Batch": l.get("_batch", "")} for l in zicht])
+                            "Waarom": l.get("_uitleg", ""), "Batch": l.get("_batch", "")} for l in zicht])
         st.caption(f"{len(zicht)} van {len(leads)} leads getoond, gesorteerd op score.")
         st.dataframe(df, use_container_width=True, height=380, hide_index=True,
                      column_config={"Score": st.column_config.ProgressColumn(
@@ -1757,6 +1828,8 @@ with tab_res:
             if l.get("_kanaal"): info += f"  •  **Advies:** {l['_kanaal']}"
             if l.get("haak"): info += f"  •  **Haak:** {l['haak']}"
             st.markdown(info)
+            if l.get("_uitleg"):
+                st.caption("Waarom deze score: " + l["_uitleg"])
             tab1, tab2, tab3 = st.tabs(["Mail 1", "Opvolgmail 2", "Opvolgmail 3"])
             with tab1:
                 onderwerp = st.text_input("Onderwerp", l["_subject"], key=f"subj_{keuze}")
@@ -1899,14 +1972,17 @@ with tab_crm:
                                   ("next_action", ""), ("next_action_date", None), ("dnc_reason", ""),
                                   ("last_mailed", None), ("email_status", ""), ("contact_name", ""),
                                   ("contact_role", ""), ("contact_email", ""),
-                                  ("contact_email_status", "")]:
+                                  ("contact_email_status", ""), ("instagram", ""), ("linkedin", ""),
+                                  ("facebook", ""), ("plaats", ""), ("score_reason", ""), ("tech", ""),
+                                  ("form_url", ""), ("whatsapp", ""), ("phone", ""), ("website", ""), ("hook", "")]:
                     if kol not in cdf.columns:
                         cdf[kol] = leeg
                 cdf["note"] = cdf["note"].fillna("")
                 cdf["next_action"] = cdf["next_action"].fillna("")
                 cdf["dnc_reason"] = cdf["dnc_reason"].fillna("")
                 for _k in ("email_status", "contact_name", "contact_role", "contact_email",
-                           "contact_email_status"):
+                           "contact_email_status", "instagram", "linkedin", "facebook", "plaats", "score_reason",
+                           "tech", "form_url", "whatsapp", "phone", "website", "hook", "email"):
                     cdf[_k] = cdf[_k].fillna("")
                 # Supabase geeft datums als tekst; de tabel wil echte datums (anders een foutmelding)
                 for _k in ("next_action_date", "last_mailed"):
@@ -2023,7 +2099,7 @@ with tab_crm:
                 st.caption(f"{len(toon)} van {len(cdf)} leads.")
                 edit = st.data_editor(
                     toon[["company_name", "segment", "email", "contact_name", "contact_email",
-                          "contact_email_status", "score", "status",
+                          "contact_email_status", "score", "score_reason", "status",
                           "next_action", "next_action_date", "last_mailed", "note", "dnc_reason"]],
                     use_container_width=True, height=420, key="crm_editor",
                     column_config={
@@ -2036,6 +2112,7 @@ with tab_crm:
                             help="published = stond op hun eigen site, verified = gecontroleerd, "
                                  "risky = onzeker, guess = gok (wordt niet gebruikt), invalid = ongeldig"),
                         "score": st.column_config.ProgressColumn("Score", min_value=0, max_value=100, format="%d"),
+                        "score_reason": st.column_config.TextColumn("Waarom deze score", disabled=True, width="large"),
                         "status": st.column_config.SelectboxColumn("Status", options=STATUS_OPTIES),
                         "next_action": st.column_config.TextColumn("Volgende actie"),
                         "next_action_date": st.column_config.DateColumn("Datum volg. actie"),
@@ -2200,6 +2277,62 @@ with tab_crm:
                                 st.error(f"Klaarzetten mislukt: {e}")
                         if overgeslagen:
                             st.warning("Overgeslagen:\n\n" + "\n".join(f"- {x}" for x in overgeslagen))
+
+                # ---- Kanalen & berichten (voor leads zonder e-mail, of als tweede kanaal) ----
+                st.divider()
+                st.markdown("### \U0001F4F1 Kanalen & berichten")
+                if not KA_OK:
+                    st.warning("Zet **kanalen.py** in dezelfde map als app.py om dit te gebruiken.")
+                else:
+                    st.caption("De app stuurt hier zelf niets. Ze zoekt de beste route en schrijft een kort bericht; "
+                               "jij klikt en verstuurt. Automatisch berichten sturen op LinkedIn of Instagram kan je account kosten.")
+                    k1, k2 = st.columns([1, 2])
+                    alleen_zonder = k1.checkbox("Alleen leads zonder e-mail", value=True, key="kn_zonder")
+                    kdf = cdf[(cdf["email"].astype(str).str.strip() == "") | (not alleen_zonder)]
+                    kdf = kdf[~kdf["status"].isin(["Do not contact", "Afgewezen", "Klant"])]
+                    kdf = kdf.sort_values("score", ascending=False)
+                    if kdf.empty:
+                        st.info("Geen leads in deze selectie.")
+                    else:
+                        kidx = k2.selectbox("Lead", list(kdf.index), key="kn_lead",
+                                            format_func=lambda i: f"{kdf.loc[i,'company_name']} (score {int(kdf.loc[i,'score'] or 0)})")
+                        krow = {k: (kdf.loc[kidx, k] if k in kdf.columns else "") for k in kdf.columns}
+                        krow["seg"] = (LABEL_TO_SEG.get(krow.get("segment") or "") or "")
+                        kan = KA.beste_kanalen(krow)
+                        bd = KA.maak_berichten(krow, afzender=(st.session_state.get("zoho_from") or "Yusuf").split()[0],
+                                               merk=brand.get("merk") or "VoiceStamp")
+                        if krow.get("score_reason"):
+                            st.caption("Waarom deze score: " + str(krow["score_reason"]))
+                        cols = st.columns(min(len(kan), 4))
+                        for i, (naam_k, uitleg_k, link_k) in enumerate(kan[:4]):
+                            with cols[i]:
+                                st.markdown(f'<div class="vs-card" style="margin:4px 0"><h4>{_html.escape(naam_k)}</h4>'
+                                            f'<div class="vs-muted" style="font-size:12.5px">{_html.escape(uitleg_k)}</div></div>',
+                                            unsafe_allow_html=True)
+                                if link_k and hasattr(st, "link_button"):
+                                    st.link_button(f"Open {naam_k}", link_k, use_container_width=True)
+                        for titel_b, tekst_b in bd.items():
+                            if titel_b.startswith("Instagram") and not krow.get("instagram"): continue
+                            if titel_b == "Contactformulier" and not krow.get("form_url"): continue
+                            if titel_b == "WhatsApp" and not (krow.get("whatsapp") or krow.get("phone")): continue
+                            with st.expander(titel_b + (f" ({len(tekst_b)} tekens)" if "kort" in titel_b else "")):
+                                st.code(tekst_b, language=None)
+                        st.caption("Nadat je iets hebt verstuurd:")
+                        kb1, kb2 = st.columns(2)
+                        kanaal_gedaan = kb1.selectbox("Via", ["LinkedIn", "Instagram", "WhatsApp", "Contactformulier", "Telefoon"],
+                                                      key="kn_via", label_visibility="collapsed")
+                        if kb2.button("\u2705 Gedaan: zet follow-up over 4 dagen", key="kn_gedaan", type="primary"):
+                            from datetime import date as _d2, timedelta as _td2
+                            cl = st.session_state["sb_client"]; uid = st.session_state["sb_user"]
+                            volg = _d2.today() + _td2(days=4)
+                            try:
+                                crm_update(cl, krow["id"], uid, {"status": "Gemaild", "last_mailed": _d2.today().isoformat(),
+                                                                 "next_action": f"Follow-up via {kanaal_gedaan}",
+                                                                 "next_action_date": volg.isoformat()})
+                                crm_add_activity(cl, uid, krow["id"], "Benaderd", f"via {kanaal_gedaan}")
+                                st.success(f"Vastgelegd. Follow-up staat op {volg.strftime('%d-%m-%Y')}.")
+                            except Exception as e:
+                                st.error(f"Opslaan mislukt: {e}")
 
                 # ---- Verwijderen ----
                 st.divider()
@@ -2569,6 +2702,89 @@ with tab_out:
                         verwerk_antwoord(cl, uid, alle_leads[li], soort, nw, m_ond, m_txt)
                     st.success(f"Herkend als: {uitleg}. " + ("Reeks gestopt." if soort != "auto" else "Niets gewijzigd."))
                     st.rerun()
+
+with tab_content:
+    if not CO_OK:
+        st.warning("Zet **content.py** in dezelfde map als app.py om de contentwachtrij te gebruiken.")
+    elif not st.session_state.get("sb_user"):
+        st.info("Log links in bij **Account / CRM** om je contentplanning te bewaren.")
+    else:
+        from datetime import date as _dc, timedelta as _tdc
+        cl = st.session_state["sb_client"]; uid = st.session_state["sb_user"]
+        try:
+            posts = cp_load(cl, uid); cp_fout = None
+        except Exception as e:
+            posts, cp_fout = [], e
+        if cp_fout:
+            st.error(f"Kon de contentplanning niet laden. Heb je de nieuwe **supabase_setup.sql** (versie 4) uitgevoerd? ({cp_fout})")
+        else:
+            vandaag = _dc.today().isoformat()
+            open_p = [p for p in posts if p["status"] == "concept"]
+            nu_p = [p for p in open_p if p["gepland_op"] <= vandaag]
+            vs_insight("Content",
+                       (f"{len(nu_p)} post{'s' if len(nu_p) != 1 else ''} om vandaag te plaatsen." if nu_p
+                        else (f"{len(open_p)} posts staan klaar, de volgende is op {open_p[0]['gepland_op']}." if open_p
+                              else "Je planning is leeg. Maak hieronder een plan.")),
+                       "Je plakt de tekst in LinkedIn of Instagram. De app plaatst zelf niets.")
+            vs_kpis([("Te plaatsen", len(nu_p), "vandaag of eerder", "amber" if nu_p else ""),
+                     ("Gepland", len(open_p), "nog niet geplaatst"),
+                     ("Geplaatst", sum(1 for p in posts if p["status"] == "geplaatst"), "totaal"),
+                     ("LinkedIn / Instagram", f"{sum(1 for p in open_p if p['kanaal'] == 'LinkedIn')} / "
+                                              f"{sum(1 for p in open_p if p['kanaal'] == 'Instagram')}", "in de planning")])
+
+            with st.expander("\u2795 Nieuw plan maken", expanded=not posts):
+                c1, c2 = st.columns(2)
+                sect = c1.multiselect("Sectoren", list(CO.SECTOREN.keys()), default=["Webshops"], key="cp_sect",
+                                      help="Het plan wisselt tussen deze sectoren af.")
+                kan = c2.multiselect("Kanalen", ["LinkedIn", "Instagram"], default=["LinkedIn", "Instagram"], key="cp_kan")
+                d1, d2, d3 = st.columns(3)
+                weken = d1.number_input("Aantal weken", 1, 12, 4, key="cp_weken")
+                startd = d2.date_input("Beginnen op", _dc.today(), key="cp_start")
+                d3.caption("Voorstel: LinkedIn di en do om 08:30, Instagram ma, wo en za om 18:00. "
+                           "Dat is een voorstel, geen onderzoek. Pas de datum per post aan.")
+                if st.button("Maak plan", type="primary", disabled=not (sect and kan), key="cp_maak"):
+                    plan = CO.maak_plan(sect, kan, int(weken), startd)
+                    try:
+                        n_ = cp_create(cl, uid, plan)
+                        st.success(f"{n_} posts toegevoegd aan je planning.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Opslaan mislukt: {e}")
+
+            if open_p:
+                st.markdown("### Aankomende posts")
+                for p in open_p[:30]:
+                    te_laat = p["gepland_op"] < vandaag
+                    kop = f"{p['gepland_op']} {p['tijd']}  \u2022  {p['kanaal']}  \u2022  {p['sector']}  \u2022  {p['formaat']}"
+                    with st.expander(("\u26A0\uFE0F " if te_laat else "") + kop, expanded=(p["gepland_op"] == vandaag)):
+                        nieuwe_tekst = st.text_area("Tekst", p["tekst"], height=220, key=f"cpt_{p['id']}")
+                        st.caption("Beeld: " + (p.get("beeld") or ""))
+                        st.code(nieuwe_tekst, language=None)
+                        b1, b2, b3, b4 = st.columns([1.3, 1, 1, 1])
+                        if b1.button("\u2705 Geplaatst", key=f"cpg_{p['id']}", type="primary"):
+                            cp_update(cl, uid, p["id"], {"status": "geplaatst", "tekst": nieuwe_tekst}); st.rerun()
+                        if b2.button("Bewaar tekst", key=f"cps_{p['id']}"):
+                            cp_update(cl, uid, p["id"], {"tekst": nieuwe_tekst}); st.rerun()
+                        nd = b3.date_input("Nieuwe datum", _dc.fromisoformat(p["gepland_op"]), key=f"cpd_{p['id']}",
+                                           label_visibility="collapsed")
+                        if str(nd) != p["gepland_op"]:
+                            cp_update(cl, uid, p["id"], {"gepland_op": str(nd)}); st.rerun()
+                        if b4.button("\U0001F5D1 Weg", key=f"cpw_{p['id']}"):
+                            cp_delete(cl, uid, p["id"]); st.rerun()
+                if len(open_p) > 30:
+                    st.caption(f"Nog {len(open_p) - 30} posts verderop in de planning.")
+                import io as _io, csv as _csv
+                buf = _io.StringIO(); w = _csv.writer(buf, delimiter=";")
+                w.writerow(["datum", "tijd", "kanaal", "sector", "formaat", "tekst", "beeld", "status"])
+                for p in posts:
+                    w.writerow([p["gepland_op"], p["tijd"], p["kanaal"], p["sector"], p["formaat"], p["tekst"], p.get("beeld", ""), p["status"]])
+                st.download_button("Download planning (CSV, voor een planner)", buf.getvalue().encode("utf-8-sig"),
+                                   "voicestamp_content.csv", "text/csv", key="cp_csv")
+            geplaatst = [p for p in posts if p["status"] == "geplaatst"]
+            if geplaatst:
+                with st.expander(f"Al geplaatst ({len(geplaatst)})"):
+                    for p in geplaatst[-20:]:
+                        st.markdown(f"**{p['gepland_op']}** \u2022 {p['kanaal']} \u2022 {p['sector']} \u2022 {p['formaat']}")
 
 with tab_upload:
     st.header("Bestand uploaden (HR / onboarding)")
